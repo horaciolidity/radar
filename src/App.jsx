@@ -1,0 +1,192 @@
+import React, { useState, useEffect } from 'react';
+import Header from './components/Header';
+import FilterBar from './components/FilterBar';
+import ContractCard from './components/ContractCard';
+import { CONTRACTS_MOCK } from './data/mockData';
+import { Activity, LayoutGrid, List as ListIcon, Info, RefreshCcw } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+
+function App() {
+  const [contracts, setContracts] = useState(CONTRACTS_MOCK);
+  const [activeFilters, setActiveFilters] = useState({
+    network: 'all',
+    safety: [],
+    risk: []
+  });
+  const [viewMode, setViewMode] = useState('grid');
+  const [isScanning, setIsScanning] = useState(true);
+
+  // Simulate real-time updates
+  useEffect(() => {
+    const interval = setInterval(() => {
+      // Small chance to add a "new" contract to the start
+      if (Math.random() > 0.7) {
+        const newContract = {
+          ...CONTRACTS_MOCK[Math.floor(Math.random() * CONTRACTS_MOCK.length)],
+          id: Math.random().toString(),
+          createdAt: new Date().toISOString(),
+          address: '0x' + Math.random().toString(16).slice(2, 10) + '...' + Math.random().toString(16).slice(2, 6)
+        };
+        setContracts(prev => [newContract, ...prev].slice(0, 20));
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const toggleFilter = (type, value) => {
+    setActiveFilters(prev => {
+      if (type === 'network') {
+        return { ...prev, network: prev.network === value ? 'all' : value };
+      }
+
+      const currentList = prev[type];
+      const newList = currentList.includes(value)
+        ? currentList.filter(v => v !== value)
+        : [...currentList, value];
+
+      return { ...prev, [type]: newList };
+    });
+  };
+
+  const filteredContracts = contracts.filter(contract => {
+    if (activeFilters.network !== 'all' && contract.network !== activeFilters.network) return false;
+
+    // Safety filters
+    if (activeFilters.safety.includes('hasLiquidity') && (contract.liquidity.amount === '$0' || !contract.liquidity)) return false;
+    if (activeFilters.safety.includes('isSafe') && contract.safety.status !== 'safe') return false;
+    if (activeFilters.safety.includes('noVulnerability') && contract.isVulnerable) return false;
+    if (activeFilters.safety.includes('isNotScam') && contract.isScam) return false;
+
+    // Risk filters
+    if (activeFilters.risk.includes('isVulnerable') && !contract.isVulnerable) return false;
+    if (activeFilters.risk.includes('isScam') && !contract.isScam) return false;
+
+    return true;
+  });
+
+  return (
+    <div className="min-h-screen flex flex-col">
+      <Header />
+
+      <main className="flex-1 container mx-auto px-6 py-8">
+        {/* Dashboard Hero */}
+        <section className="mb-12">
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-primary font-mono text-sm">
+                <Activity size={16} className="animate-pulse" />
+                LIVE SCANNER ACTIVE
+              </div>
+              <h2 className="text-4xl font-black tracking-tight text-white uppercase italic">
+                Cross-Chain <span className="text-primary">Radar</span>
+              </h2>
+              <p className="text-zinc-400 max-w-xl">
+                Advanced real-time contract analyzer. Detecting vulnerabilities, rugs, and liquidity injections across all major EVM networks.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="flex bg-surface border border-white/5 rounded-lg p-1">
+                <button
+                  onClick={() => setViewMode('grid')}
+                  className={`p-2 rounded-md ${viewMode === 'grid' ? 'bg-zinc-800 text-white' : 'text-zinc-500'}`}
+                >
+                  <LayoutGrid size={18} />
+                </button>
+                <button
+                  onClick={() => setViewMode('list')}
+                  className={`p-2 rounded-md ${viewMode === 'list' ? 'bg-zinc-800 text-white' : 'text-zinc-500'}`}
+                >
+                  <ListIcon size={18} />
+                </button>
+              </div>
+              <button
+                onClick={() => setIsScanning(!isScanning)}
+                className={`flex items-center gap-2 px-4 py-2 font-bold rounded-lg transition-all ${isScanning ? 'bg-primary/20 text-primary border border-primary/30' : 'bg-surface border border-white/5 text-zinc-500'}`}
+              >
+                <RefreshCcw size={16} className={isScanning ? 'animate-spin' : ''} />
+                {isScanning ? 'SCANNING' : 'PAUSED'}
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-8">
+            <FilterBar activeFilters={activeFilters} toggleFilter={toggleFilter} />
+          </div>
+        </section>
+
+        {/* Results Stats */}
+        <div className="flex items-center justify-between mb-6 px-2">
+          <div className="text-xs font-mono text-zinc-500 uppercase tracking-widest">
+            Showing <span className="text-white font-bold">{filteredContracts.length}</span> active signals
+          </div>
+          <div className="flex items-center gap-4 text-[10px] text-zinc-500">
+            <div className="flex items-center gap-1">
+              <div className="w-2 h-2 rounded-full bg-success" /> Safe
+            </div>
+            <div className="flex items-center gap-1">
+              <div className="w-2 h-2 rounded-full bg-warning" /> Warning
+            </div>
+            <div className="flex items-center gap-1">
+              <div className="w-2 h-2 rounded-full bg-danger" /> Danger
+            </div>
+          </div>
+        </div>
+
+        {/* Feed */}
+        {filteredContracts.length > 0 ? (
+          <motion.div
+            layout
+            className={viewMode === 'grid' ? "radar-grid" : "space-y-4 max-w-4xl mx-auto"}
+          >
+            <AnimatePresence mode='popLayout'>
+              {filteredContracts.map((contract) => (
+                <motion.div
+                  key={contract.id}
+                  layout
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{ duration: 0.4, ease: "easeOut" }}
+                >
+                  <ContractCard contract={contract} />
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </motion.div>
+        ) : (
+          <div className="py-24 text-center glass-card rounded-3xl border-dashed border-2 flex flex-col items-center gap-4">
+            <div className="w-16 h-16 bg-surface-lighter rounded-full flex items-center justify-center text-zinc-600">
+              <Info size={32} />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-xl font-bold text-white">No contracts found</h3>
+              <p className="text-zinc-500">Try adjusting your filters to see more results</p>
+            </div>
+            <button
+              onClick={() => setActiveFilters({ network: 'all', safety: [], risk: [] })}
+              className="mt-2 text-primary font-bold text-sm hover:underline"
+            >
+              Clear all filters
+            </button>
+          </div>
+        )}
+      </main>
+
+      <footer className="py-8 border-t border-white/5 mt-12 bg-surface/30">
+        <div className="container mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-6">
+          <div className="text-[10px] font-mono text-zinc-600 uppercase tracking-widest">
+            &copy; 2026 Contract Radar Alpha // Secure the decentralized web
+          </div>
+          <div className="flex gap-8">
+            <a href="#" className="text-xs text-zinc-500 hover:text-white transition-colors">Documentation</a>
+            <a href="#" className="text-xs text-zinc-500 hover:text-white transition-colors">API Keys</a>
+            <a href="#" className="text-xs text-zinc-500 hover:text-white transition-colors">Terms of Service</a>
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+export default App;
