@@ -44,13 +44,15 @@ function App() {
     }
   };
 
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
   // Fetch scan status on mount
   useEffect(() => {
-    fetch('https://radar-backend-production.up.railway.app/api/status')
+    fetch(`${API_URL}/api/status`)
       .then(res => res.json())
       .then(data => setScanStatus(data))
       .catch(err => console.error("Error fetching status", err));
-  }, []);
+  }, [API_URL]);
 
   // Poll for new contracts
   useEffect(() => {
@@ -58,7 +60,7 @@ function App() {
       const params = new URLSearchParams();
       if (activeFilters.network !== 'all') params.append('network', activeFilters.network);
 
-      fetch('https://radar-backend-production.up.railway.app/api/contracts?' + params.toString())
+      fetch(`${API_URL}/api/contracts?` + params.toString())
         .then(res => res.json())
         .then(data => {
           setContracts(data);
@@ -73,13 +75,13 @@ function App() {
     fetchContracts();
     const interval = setInterval(fetchContracts, 3000);
     return () => clearInterval(interval);
-  }, [activeFilters.network, activeFilters.age]); // Added age as dependency
+  }, [activeFilters.network, activeFilters.age, API_URL]); // Added API_URL as dependency
 
   const toggleScanning = async (networkName) => {
     const isCurrentlyScanning = scanStatus.activeScans[networkName];
     const endpoint = isCurrentlyScanning ? 'stop' : 'start';
     try {
-      const res = await fetch(`https://radar-backend-production.up.railway.app/api/scan/${endpoint}`, {
+      const res = await fetch(`${API_URL}/api/scan/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ network: networkName })
@@ -97,7 +99,7 @@ function App() {
 
   const requestHistory = async (networkName) => {
     try {
-      await fetch(`https://radar-backend-production.up.railway.app/api/scan/history`, {
+      await fetch(`${API_URL}/api/scan/history`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ network: networkName, blocks: 20 })
