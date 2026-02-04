@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { indexer } from './indexer.js';
+import { supabase } from './supabaseClient.js';
 
 const app = express();
 const PORT = 3001;
@@ -38,21 +39,32 @@ app.post('/api/scan/history', async (req, res) => {
 });
 
 // Get contracts with filters
-app.get('/api/contracts', (req, res) => {
+app.get('/api/contracts', async (req, res) => {
     try {
-        let results = indexer.contractStorage;
         const { network, risk } = req.query;
+        let query = supabase
+            .from('contracts')
+            .select('*')
+            .order('timestamp', { ascending: false })
+            .limit(100);
 
         if (network && network !== 'all') {
-            results = results.filter(c => c.network.toLowerCase() === network.toLowerCase());
+            query = query.eq('network', network);
         }
 
         if (risk && risk !== 'all') {
-            results = results.filter(c => c.tag.toLowerCase() === risk.toLowerCase());
+            query = query.eq('tag', risk.toUpperCase());
         }
 
+        const { data, error } = await query;
+
+        if (error) throw error;
+
+        // Map back to internal format for frontend consistency
+        const results = data.map(indexer.mapDbToInternal);
         res.json(results);
     } catch (e) {
+        console.error("API error:", e.message);
         res.status(500).json({ error: "Failed to fetch contracts" });
     }
 });

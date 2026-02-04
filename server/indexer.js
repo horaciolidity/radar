@@ -2,11 +2,11 @@ import { ethers } from 'ethers';
 import fs from 'fs';
 import path from 'path';
 import { analyzeContract } from './analyzer.js';
+import { supabase } from './supabaseClient.js';
 
 const DB_PATH = path.join(process.cwd(), 'data');
 if (!fs.existsSync(DB_PATH)) fs.mkdirSync(DB_PATH);
 
-const CONTRACTS_FILE = path.join(DB_PATH, 'contracts.json');
 const STATE_FILE = path.join(DB_PATH, 'state.json');
 
 const RPC_URLS = {
@@ -22,30 +22,83 @@ export class ContractIndexer {
     constructor() {
         this.providers = {};
         this.activeScans = {}; // { network: boolean }
-        this.contractStorage = this.loadContracts();
+        this.contractStorage = []; // Will be synced with Supabase
         this.loadState();
+        this.syncWithSupabase();
+    }
+
+    async syncWithSupabase() {
+        try {
+            const { data, error } = await supabase
+                .from('contracts')
+                .select('*')
+                .order('timestamp', { ascending: false })
+                .limit(500);
+
+            if (error) throw error;
+            if (data) {
+                this.contractStorage = data.map(this.mapDbToInternal);
+            }
+        } catch (err) {
+            console.error("Error syncing with Supabase:", err.message);
+        }
+    }
+
+    mapDbToInternal(dbRow) {
+        return {
+            id: dbRow.id,
+            network: dbRow.network,
+            address: dbRow.address,
+            deployer: dbRow.deployer,
+            blockNumber: dbRow.block_number,
+            txHash: dbRow.tx_hash,
+            timestamp: dbRow.timestamp,
+            tag: dbRow.tag,
+            riskScore: dbRow.risk_score,
+            type: dbRow.type,
+            name: dbRow.name,
+            symbol: dbRow.symbol,
+            findings: dbRow.findings,
+            features: dbRow.features,
+            isScam: dbRow.is_scam,
+            isVulnerable: dbRow.is_vulnerable
+        };
+    }
+
+    mapInternalToDb(contract) {
+        return {
+            id: contract.id,
+            network: contract.network,
+            address: contract.address,
+            deployer: contract.deployer,
+            block_number: contract.blockNumber,
+            tx_hash: contract.txHash,
+            timestamp: contract.timestamp,
+            tag: contract.tag,
+            risk_score: contract.riskScore,
+            type: contract.type,
+            name: contract.name,
+            symbol: contract.symbol,
+            findings: contract.findings,
+            features: contract.features,
+            is_scam: contract.isScam || false,
+            is_vulnerable: contract.isVulnerable || false
+        };
     }
 
     loadState() {
         if (fs.existsSync(STATE_FILE)) {
-            const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
-            this.activeScans = state.activeScans || {};
+            try {
+                const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+                this.activeScans = state.activeScans || {};
+            } catch (e) {
+                this.activeScans = {};
+            }
         }
     }
 
     saveState() {
         fs.writeFileSync(STATE_FILE, JSON.stringify({ activeScans: this.activeScans }));
-    }
-
-    loadContracts() {
-        if (fs.existsSync(CONTRACTS_FILE)) {
-            return JSON.parse(fs.readFileSync(CONTRACTS_FILE, 'utf8'));
-        }
-        return [];
-    }
-
-    saveContracts() {
-        fs.writeFileSync(CONTRACTS_FILE, JSON.stringify(this.contractStorage, null, 2));
     }
 
     getProvider(network) {
@@ -61,6 +114,7 @@ export class ContractIndexer {
         if (!provider) return;
 
         try {
+            console.log(`[${network}] Scanning block ${blockNumber}...`);
             const block = await provider.getBlock(blockNumber, true);
             if (!block || !block.prefetchedTransactions) return;
 
@@ -71,13 +125,12 @@ export class ContractIndexer {
                         const analysis = await analyzeContract(receipt.contractAddress, tx.from, provider);
 
                         // Age Estimation for historical blocks
-                        // If block is old, estimate timestamp
                         const currentBlock = await provider.getBlockNumber();
                         const blocksAgo = currentBlock - blockNumber;
-                        const estimatedTs = new Date(Date.now() - (blocksAgo * 12 * 1000)).toISOString(); // 12s per block avg
+                        const estimatedTs = new Date(Date.now() - (blocksAgo * 12 * 1000)).toISOString();
 
                         const completeData = {
-                            id: `${network}-${receipt.contractAddress}`,
+                            id: `${network}-${receipt.contractAddress}`.toLowerCase(),
                             address: receipt.contractAddress,
                             deployer: tx.from,
                             ...analysis,
@@ -87,21 +140,33 @@ export class ContractIndexer {
                             blockchain: network,
                             timestamp: block.timestamp ? new Date(block.timestamp * 1000).toISOString() : estimatedTs
                         };
-                        this.addContract(completeData);
+                        await this.addContract(completeData);
                         console.log(`[${network}] Found contract ${receipt.contractAddress} at block ${blockNumber}`);
                     }
                 }
             }
         } catch (err) {
-            // Silently ignore individual block errors in history
+            console.error(`[${network}] Error scanning block ${blockNumber}:`, err.message);
         }
     }
 
-    addContract(contract) {
+    async addContract(contract) {
+        // Update local cache
         if (!this.contractStorage.find(c => c.id === contract.id)) {
             this.contractStorage.unshift(contract);
             if (this.contractStorage.length > 500) this.contractStorage.pop();
-            this.saveContracts();
+
+            // Push to Supabase
+            try {
+                const dbRow = this.mapInternalToDb(contract);
+                const { error } = await supabase
+                    .from('contracts')
+                    .upsert(dbRow, { onConflict: 'id' });
+
+                if (error) console.error("Supabase upsert error:", error.message);
+            } catch (err) {
+                console.error("Failed to push to Supabase:", err.message);
+            }
         }
     }
 
