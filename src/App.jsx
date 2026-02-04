@@ -7,31 +7,61 @@ import { Activity, LayoutGrid, List as ListIcon, Info, RefreshCcw } from 'lucide
 import { motion, AnimatePresence } from 'framer-motion';
 
 function App() {
-  const [contracts, setContracts] = useState(CONTRACTS_MOCK);
+  const [contracts, setContracts] = useState([]);
   const [activeFilters, setActiveFilters] = useState({
     network: 'all',
     safety: [],
     risk: []
   });
   const [viewMode, setViewMode] = useState('grid');
-  const [isScanning, setIsScanning] = useState(true);
+  const [isScanning, setIsScanning] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Simulate real-time updates
+  // Fetch scan status on mount
   useEffect(() => {
-    const interval = setInterval(() => {
-      // Small chance to add a "new" contract to the start
-      if (Math.random() > 0.7) {
-        const newContract = {
-          ...CONTRACTS_MOCK[Math.floor(Math.random() * CONTRACTS_MOCK.length)],
-          id: Math.random().toString(),
-          createdAt: new Date().toISOString(),
-          address: '0x' + Math.random().toString(16).slice(2, 10) + '...' + Math.random().toString(16).slice(2, 6)
-        };
-        setContracts(prev => [newContract, ...prev].slice(0, 20));
-      }
-    }, 5000);
-    return () => clearInterval(interval);
+    fetch('http://localhost:3000/api/status')
+      .then(res => res.json())
+      .then(data => setIsScanning(data.isScanning))
+      .catch(err => console.error("Error fetching status", err));
   }, []);
+
+  // Poll for new contracts
+  useEffect(() => {
+    const fetchContracts = () => {
+      // Build query params based on filters
+      const params = new URLSearchParams();
+      // Only basic risk filtering on backend for now
+      if (activeFilters.risk.length > 0) {
+        // just taking first for simplicity in demo
+      }
+
+      fetch('http://localhost:3000/api/contracts?' + params.toString())
+        .then(res => res.json())
+        .then(data => {
+          setContracts(data);
+          setIsLoading(false);
+        })
+        .catch(err => {
+          console.error("Error fetching contracts", err);
+          setIsLoading(false);
+        });
+    };
+
+    fetchContracts();
+    const interval = setInterval(fetchContracts, 3000);
+    return () => clearInterval(interval);
+  }, [activeFilters]);
+
+  const toggleScanning = async () => {
+    const endpoint = isScanning ? 'stop' : 'start';
+    try {
+      const res = await fetch(`http://localhost:3000/api/scan/${endpoint}`, { method: 'POST' });
+      const data = await res.json();
+      setIsScanning(data.isScanning);
+    } catch (e) {
+      console.error("Failed to toggle scanning", e);
+    }
+  };
 
   const toggleFilter = (type, value) => {
     setActiveFilters(prev => {
@@ -49,11 +79,10 @@ function App() {
   };
 
   const filteredContracts = contracts.filter(contract => {
-    if (activeFilters.network !== 'all' && contract.network !== activeFilters.network) return false;
+    if (activeFilters.network !== 'all' && contract.network.toLowerCase() !== activeFilters.network.toLowerCase()) return false;
 
-    // Safety filters
-    if (activeFilters.safety.includes('hasLiquidity') && (contract.liquidity.amount === '$0' || !contract.liquidity)) return false;
-    if (activeFilters.safety.includes('isSafe') && contract.safety.status !== 'safe') return false;
+    // Safety filters mapping to backend data
+    if (activeFilters.safety.includes('isSafe') && contract.tag !== 'SAFE') return false;
     if (activeFilters.safety.includes('noVulnerability') && contract.isVulnerable) return false;
     if (activeFilters.safety.includes('isNotScam') && contract.isScam) return false;
 
@@ -101,7 +130,7 @@ function App() {
                 </button>
               </div>
               <button
-                onClick={() => setIsScanning(!isScanning)}
+                onClick={toggleScanning}
                 className={`flex items-center gap-2 px-4 py-2 font-bold rounded-lg transition-all ${isScanning ? 'bg-primary/20 text-primary border border-primary/30' : 'bg-surface border border-white/5 text-zinc-500'}`}
               >
                 <RefreshCcw size={16} className={isScanning ? 'animate-spin' : ''} />
