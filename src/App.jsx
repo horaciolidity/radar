@@ -17,10 +17,36 @@ function App() {
   const [viewMode, setViewMode] = useState('grid');
   const [scanStatus, setScanStatus] = useState({ activeScans: {}, availableNetworks: [] });
   const [isLoading, setIsLoading] = useState(true);
+  const [account, setAccount] = useState(null);
+
+  const connectWallet = async () => {
+    if (window.ethereum) {
+      try {
+        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+        setAccount(accounts[0]);
+      } catch (error) {
+        console.error("Wallet connection failed", error);
+      }
+    } else if (window.tronWeb) {
+      try {
+        // TronLink takes a bit to be ready
+        if (window.tronWeb.defaultAddress.base58) {
+          setAccount(window.tronWeb.defaultAddress.base58);
+        } else {
+          await window.tronLink.request({ method: 'tron_requestAccounts' });
+          setAccount(window.tronWeb.defaultAddress.base58);
+        }
+      } catch (error) {
+        console.error("Tron connection failed", error);
+      }
+    } else {
+      alert("Please install MetaMask or TronLink!");
+    }
+  };
 
   // Fetch scan status on mount
   useEffect(() => {
-    fetch('http://localhost:3000/api/status')
+    fetch('https://radar-backend-production.up.railway.app/api/status')
       .then(res => res.json())
       .then(data => setScanStatus(data))
       .catch(err => console.error("Error fetching status", err));
@@ -32,7 +58,7 @@ function App() {
       const params = new URLSearchParams();
       if (activeFilters.network !== 'all') params.append('network', activeFilters.network);
 
-      fetch('http://localhost:3000/api/contracts?' + params.toString())
+      fetch('https://radar-backend-production.up.railway.app/api/contracts?' + params.toString())
         .then(res => res.json())
         .then(data => {
           setContracts(data);
@@ -53,7 +79,7 @@ function App() {
     const isCurrentlyScanning = scanStatus.activeScans[networkName];
     const endpoint = isCurrentlyScanning ? 'stop' : 'start';
     try {
-      const res = await fetch(`http://localhost:3000/api/scan/${endpoint}`, {
+      const res = await fetch(`https://radar-backend-production.up.railway.app/api/scan/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ network: networkName })
@@ -71,7 +97,7 @@ function App() {
 
   const requestHistory = async (networkName) => {
     try {
-      await fetch(`http://localhost:3000/api/scan/history`, {
+      await fetch(`https://radar-backend-production.up.railway.app/api/scan/history`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ network: networkName, blocks: 20 })
@@ -136,7 +162,7 @@ function App() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <Header />
+      <Header account={account} onConnect={connectWallet} />
 
       <main className="flex-1 container mx-auto px-6 py-8">
         {/* Dashboard Hero */}

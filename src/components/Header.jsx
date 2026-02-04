@@ -1,7 +1,7 @@
 import React from 'react';
 import { Radar, Bell, Search, Wallet, TrendingUp } from 'lucide-react';
 
-export default function Header() {
+export default function Header({ account, onConnect }) {
     return (
         <header className="sticky top-0 z-50 w-full glass-card border-b py-4">
             <div className="container mx-auto px-6 flex items-center justify-between">
@@ -43,9 +43,12 @@ export default function Header() {
                         <Bell size={20} />
                         <span className="absolute top-2 right-2 w-2 h-2 bg-primary rounded-full border-2 border-background" />
                     </button>
-                    <button className="btn-primary flex items-center gap-2 text-sm px-5 py-2">
+                    <button
+                        onClick={onConnect}
+                        className="btn-primary flex items-center gap-2 text-sm px-5 py-2 min-w-[140px] justify-center"
+                    >
                         <Wallet size={16} />
-                        Connect Wallet
+                        {account ? `${account.slice(0, 6)}...${account.slice(-4)}` : 'Connect Wallet'}
                     </button>
                 </div>
             </div>

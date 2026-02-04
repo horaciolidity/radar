@@ -1,1 +1,38 @@
-[]
+[
+  {
+    "id": "eth-0x1",
+    "name": "Uniswap V3 Factory",
+    "symbol": "UNI-V3",
+    "network": "Ethereum",
+    "blockchain": "Ethereum",
+    "address": "0x1F98431c8aD98523631AE4a59f267346ea31F984",
+    "deployer": "0x1a21...",
+    "tag": "SAFE",
+    "riskScore": 5,
+    "type": "DEX Factory",
+    "findings": [],
+    "features": [
+      "Verified",
+      "Multi-sig"
+    ],
+    "timestamp": "2024-12-31T01:20:40.391Z"
+  },
+  {
+    "id": "eth-0x2",
+    "name": "Tether USD",
+    "symbol": "USDT",
+    "network": "Ethereum",
+    "blockchain": "Ethereum",
+    "address": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "deployer": "0x3691...",
+    "tag": "SAFE",
+    "riskScore": 10,
+    "type": "Stablecoin",
+    "findings": [],
+    "features": [
+      "Centralized",
+      "Blacklist"
+    ],
+    "timestamp": "2024-09-22T01:20:41.055Z"
+  }
+]
