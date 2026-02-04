@@ -11,7 +11,8 @@ function App() {
   const [activeFilters, setActiveFilters] = useState({
     network: 'all',
     safety: [],
-    risk: []
+    risk: [],
+    age: 'recent' // Default to recent
   });
   const [viewMode, setViewMode] = useState('grid');
   const [scanStatus, setScanStatus] = useState({ activeScans: {}, availableNetworks: [] });
@@ -46,7 +47,7 @@ function App() {
     fetchContracts();
     const interval = setInterval(fetchContracts, 3000);
     return () => clearInterval(interval);
-  }, [activeFilters.network]);
+  }, [activeFilters.network, activeFilters.age]); // Added age as dependency
 
   const toggleScanning = async (networkName) => {
     const isCurrentlyScanning = scanStatus.activeScans[networkName];
@@ -83,8 +84,21 @@ function App() {
 
   const toggleFilter = (type, value) => {
     setActiveFilters(prev => {
-      if (type === 'network') {
-        return { ...prev, network: prev.network === value ? 'all' : value };
+      if (type === 'network' || type === 'age') {
+        // For exclusive filters like network and age, toggle between the value and 'all' (or 'recent' for age)
+        // If the current value is the same as the new value, reset it.
+        // For 'age', if value is 'recent' and it's already 'recent', reset to 'all' (or a default 'none' state if applicable).
+        // The instruction implies 'all' as a reset for both, which might be slightly ambiguous for 'age'.
+        // Assuming 'all' means no age filter applied, or a default state.
+        // Let's adjust based on the instruction's `prev[type] === value ? 'all' : value`
+        // For age, if 'recent' is clicked and it's already 'recent', it will become 'all'.
+        // If 'old' is clicked and it's already 'old', it will become 'all'.
+        // If 'all' is clicked, it will become 'all'.
+        // This might not be the desired behavior for age if 'all' is not a valid age filter.
+        // A more robust approach for age might be:
+        // return { ...prev, [type]: prev[type] === value ? (type === 'age' ? 'recent' : 'all') : value };
+        // However, sticking to the instruction:
+        return { ...prev, [type]: prev[type] === value ? 'all' : value };
       }
 
       const currentList = prev[type];
@@ -99,10 +113,19 @@ function App() {
   const filteredContracts = contracts.filter(contract => {
     if (activeFilters.network !== 'all' && contract.network.toLowerCase() !== activeFilters.network.toLowerCase()) return false;
 
+    // Age filtering
+    const contractDate = new Date(contract.timestamp);
+    const now = new Date();
+    const ageInHours = (now - contractDate) / (1000 * 60 * 60);
+    const ageInDays = ageInHours / 24;
+
+    if (activeFilters.age === 'recent' && ageInHours > 24) return false;
+    if (activeFilters.age === 'old' && ageInDays < 365) return false;
+
     // Safety filters mapping to backend data
     if (activeFilters.safety.includes('isSafe') && contract.tag !== 'SAFE') return false;
     if (activeFilters.safety.includes('noVulnerability') && contract.isVulnerable) return false;
-    if (activeFilters.safety.includes('isNotScam') && contract.isScam) return false;
+    if (activeFilters.safety.includes('isNotScam') && contract.isNotScam === false) return false;
 
     // Risk filters
     if (activeFilters.risk.includes('isVulnerable') && !contract.isVulnerable) return false;
