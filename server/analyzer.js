@@ -123,7 +123,6 @@ export async function analyzeContract(address, deployer, provider) {
         }
 
         analysis.timestamp = new Date().toISOString();
-        analysis.blockchain = "Ethereum";
 
         return analysis;
 

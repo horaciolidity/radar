@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Header from './components/Header';
 import FilterBar from './components/FilterBar';
 import ContractCard from './components/ContractCard';
-import { CONTRACTS_MOCK } from './data/mockData';
+import RadarControl from './components/RadarControl';
 import { Activity, LayoutGrid, List as ListIcon, Info, RefreshCcw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -14,26 +14,22 @@ function App() {
     risk: []
   });
   const [viewMode, setViewMode] = useState('grid');
-  const [isScanning, setIsScanning] = useState(false);
+  const [scanStatus, setScanStatus] = useState({ activeScans: {}, availableNetworks: [] });
   const [isLoading, setIsLoading] = useState(true);
 
   // Fetch scan status on mount
   useEffect(() => {
     fetch('http://localhost:3000/api/status')
       .then(res => res.json())
-      .then(data => setIsScanning(data.isScanning))
+      .then(data => setScanStatus(data))
       .catch(err => console.error("Error fetching status", err));
   }, []);
 
   // Poll for new contracts
   useEffect(() => {
     const fetchContracts = () => {
-      // Build query params based on filters
       const params = new URLSearchParams();
-      // Only basic risk filtering on backend for now
-      if (activeFilters.risk.length > 0) {
-        // just taking first for simplicity in demo
-      }
+      if (activeFilters.network !== 'all') params.append('network', activeFilters.network);
 
       fetch('http://localhost:3000/api/contracts?' + params.toString())
         .then(res => res.json())
@@ -50,16 +46,38 @@ function App() {
     fetchContracts();
     const interval = setInterval(fetchContracts, 3000);
     return () => clearInterval(interval);
-  }, [activeFilters]);
+  }, [activeFilters.network]);
 
-  const toggleScanning = async () => {
-    const endpoint = isScanning ? 'stop' : 'start';
+  const toggleScanning = async (networkName) => {
+    const isCurrentlyScanning = scanStatus.activeScans[networkName];
+    const endpoint = isCurrentlyScanning ? 'stop' : 'start';
     try {
-      const res = await fetch(`http://localhost:3000/api/scan/${endpoint}`, { method: 'POST' });
+      const res = await fetch(`http://localhost:3000/api/scan/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ network: networkName })
+      });
       const data = await res.json();
-      setIsScanning(data.isScanning);
+
+      setScanStatus(prev => ({
+        ...prev,
+        activeScans: { ...prev.activeScans, [networkName]: data.isScanning }
+      }));
     } catch (e) {
       console.error("Failed to toggle scanning", e);
+    }
+  };
+
+  const requestHistory = async (networkName) => {
+    try {
+      await fetch(`http://localhost:3000/api/scan/history`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ network: networkName, blocks: 20 })
+      });
+      alert(`Historical scan for ${networkName} started! New contracts will appear shortly.`);
+    } catch (e) {
+      console.error("Failed to request history", e);
     }
   };
 
@@ -104,13 +122,13 @@ function App() {
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-primary font-mono text-sm">
                 <Activity size={16} className="animate-pulse" />
-                LIVE SCANNER ACTIVE
+                MULTI-CHAIN RADAR ACTIVE
               </div>
               <h2 className="text-4xl font-black tracking-tight text-white uppercase italic">
-                Cross-Chain <span className="text-primary">Radar</span>
+                Network <span className="text-primary">Radar</span>
               </h2>
               <p className="text-zinc-400 max-w-xl">
-                Advanced real-time contract analyzer. Detecting vulnerabilities, rugs, and liquidity injections across all major EVM networks.
+                Real-time security auditing and historical contract detection across all major EVM networks.
               </p>
             </div>
 
@@ -129,14 +147,15 @@ function App() {
                   <ListIcon size={18} />
                 </button>
               </div>
-              <button
-                onClick={toggleScanning}
-                className={`flex items-center gap-2 px-4 py-2 font-bold rounded-lg transition-all ${isScanning ? 'bg-primary/20 text-primary border border-primary/30' : 'bg-surface border border-white/5 text-zinc-500'}`}
-              >
-                <RefreshCcw size={16} className={isScanning ? 'animate-spin' : ''} />
-                {isScanning ? 'SCANNING' : 'PAUSED'}
-              </button>
             </div>
+          </div>
+
+          <div className="mt-8">
+            <RadarControl
+              scanStatus={scanStatus}
+              onToggle={toggleScanning}
+              onHistory={requestHistory}
+            />
           </div>
 
           <div className="mt-8">
@@ -190,14 +209,8 @@ function App() {
             </div>
             <div className="space-y-1">
               <h3 className="text-xl font-bold text-white">No contracts found</h3>
-              <p className="text-zinc-500">Try adjusting your filters to see more results</p>
+              <p className="text-zinc-500">Try adjusting your filters or starting a radar scan above</p>
             </div>
-            <button
-              onClick={() => setActiveFilters({ network: 'all', safety: [], risk: [] })}
-              className="mt-2 text-primary font-bold text-sm hover:underline"
-            >
-              Clear all filters
-            </button>
           </div>
         )}
       </main>

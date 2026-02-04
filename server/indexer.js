@@ -9,101 +9,139 @@ if (!fs.existsSync(DB_PATH)) fs.mkdirSync(DB_PATH);
 const CONTRACTS_FILE = path.join(DB_PATH, 'contracts.json');
 const STATE_FILE = path.join(DB_PATH, 'state.json');
 
-// Initialize DBs
-if (!fs.existsSync(CONTRACTS_FILE)) fs.writeFileSync(CONTRACTS_FILE, '[]');
-if (!fs.existsSync(STATE_FILE)) fs.writeFileSync(STATE_FILE, JSON.stringify({ isScanning: false }));
+const RPC_URLS = {
+    'Ethereum': 'https://rpc.ankr.com/eth',
+    'BSC': 'https://rpc.ankr.com/bsc',
+    'Polygon': 'https://rpc.ankr.com/polygon',
+    'Base': 'https://rpc.ankr.com/base',
+    'Arbitrum': 'https://rpc.ankr.com/arbitrum',
+    'Optimism': 'https://rpc.ankr.com/optimism'
+};
 
 export class ContractIndexer {
     constructor() {
-        this.provider = new ethers.JsonRpcProvider("https://rpc.ankr.com/eth"); // Public RPC
-        this.isScanning = this.loadState().isScanning;
-        this.scanInterval = null;
+        this.providers = {};
+        this.activeScans = {}; // { network: boolean }
+        this.contractStorage = this.loadContracts();
+        this.loadState();
     }
 
     loadState() {
-        return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
-    }
-
-    saveState(state) {
-        fs.writeFileSync(STATE_FILE, JSON.stringify(state));
-    }
-
-    getContracts() {
-        return JSON.parse(fs.readFileSync(CONTRACTS_FILE, 'utf8'));
-    }
-
-    addContract(contractData) {
-        const contracts = this.getContracts();
-        // Avoid duplicates
-        if (!contracts.find(c => c.address === contractData.address)) {
-            contracts.unshift(contractData); // Add to top
-            // Limit to last 100 to avoid huge file in this demo
-            if (contracts.length > 100) contracts.pop();
-            fs.writeFileSync(CONTRACTS_FILE, JSON.stringify(contracts, null, 2));
+        if (fs.existsSync(STATE_FILE)) {
+            const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+            this.activeScans = state.activeScans || {};
         }
     }
 
-    async start() {
-        if (this.isScanning) {
-            console.log("Scanner already running");
-            return;
+    saveState() {
+        fs.writeFileSync(STATE_FILE, JSON.stringify({ activeScans: this.activeScans }));
+    }
+
+    loadContracts() {
+        if (fs.existsSync(CONTRACTS_FILE)) {
+            return JSON.parse(fs.readFileSync(CONTRACTS_FILE, 'utf8'));
         }
+        return [];
+    }
 
-        console.log("Starting Indexer...");
-        this.isScanning = true;
-        this.saveState({ isScanning: true });
+    saveContracts() {
+        fs.writeFileSync(CONTRACTS_FILE, JSON.stringify(this.contractStorage, null, 2));
+    }
 
-        // Listen for blocks
-        this.provider.on("block", async (blockNumber) => {
-            if (!this.isScanning) return;
+    getProvider(network) {
+        if (!RPC_URLS[network]) return null;
+        if (!this.providers[network]) {
+            this.providers[network] = new ethers.JsonRpcProvider(RPC_URLS[network]);
+        }
+        return this.providers[network];
+    }
 
-            console.log(`New Block: ${blockNumber}`);
-            try {
-                const block = await this.provider.getBlock(blockNumber, true); // true for prefetch txs
+    async scanBlock(network, blockNumber) {
+        const provider = this.getProvider(network);
+        if (!provider) return;
 
-                if (block && block.prefetchedTransactions) {
-                    for (const tx of block.prefetchedTransactions) {
-                        // Contract creation: 'to' is null
-                        if (tx.to === null) {
-                            console.log(`Contract detected in tx: ${tx.hash}`);
-                            // Calculate contract address (simplified or wait for receipt)
-                            // Correct way: ethers.getCreateAddress(tx) (if available) or from receipt
-                            // For speed, let's try to get receipt
-                            try {
-                                const receipt = await this.provider.getTransactionReceipt(tx.hash);
-                                if (receipt && receipt.contractAddress) {
-                                    const analysis = await analyzeContract(receipt.contractAddress, tx.from, this.provider);
+        try {
+            const block = await provider.getBlock(blockNumber, true);
+            if (!block || !block.prefetchedTransactions) return;
 
-                                    // Enrich with metadata
-                                    const completeData = {
-                                        id: receipt.contractAddress,
-                                        ...analysis,
-                                        blockNumber,
-                                        txHash: tx.hash,
-                                        network: "Ethereum", // TODO: Support multi-chain
-                                        timestamp: new Date().toISOString()
-                                    };
-
-                                    this.addContract(completeData);
-                                    console.log(`Indexed ${receipt.contractAddress} Risk: ${analysis.riskScore}`);
-                                }
-                            } catch (e) {
-                                console.error("Error processing tx receipt", e);
-                            }
-                        }
+            for (const tx of block.prefetchedTransactions) {
+                if (tx.to === null) {
+                    const receipt = await provider.getTransactionReceipt(tx.hash);
+                    if (receipt && receipt.contractAddress) {
+                        const analysis = await analyzeContract(receipt.contractAddress, tx.from, provider);
+                        const completeData = {
+                            id: `${network}-${receipt.contractAddress}`,
+                            address: receipt.contractAddress,
+                            deployer: tx.from,
+                            ...analysis,
+                            blockNumber,
+                            txHash: tx.hash,
+                            network,
+                            blockchain: network,
+                            timestamp: new Date().toISOString()
+                        };
+                        this.addContract(completeData);
+                        console.log(`[${network}] Detected contract ${receipt.contractAddress}`);
                     }
                 }
-            } catch (err) {
-                console.error("Block processing error", err);
             }
-        });
+        } catch (err) {
+            console.error(`Error scanning block ${blockNumber} on ${network}:`, err.message);
+        }
     }
 
-    stop() {
-        console.log("Stopping Indexer...");
-        this.isScanning = false;
-        this.saveState({ isScanning: false });
-        this.provider.removeAllListeners("block");
+    addContract(contract) {
+        if (!this.contractStorage.find(c => c.id === contract.id)) {
+            this.contractStorage.unshift(contract);
+            if (this.contractStorage.length > 500) this.contractStorage.pop();
+            this.saveContracts();
+        }
+    }
+
+    async startScanning(network) {
+        if (this.activeScans[network]) return;
+
+        const provider = this.getProvider(network);
+        if (!provider) return;
+
+        this.activeScans[network] = true;
+        this.saveState();
+
+        provider.on('block', (blockNumber) => {
+            if (this.activeScans[network]) {
+                this.scanBlock(network, blockNumber);
+            }
+        });
+        console.log(`Radar started on ${network}`);
+    }
+
+    stopScanning(network) {
+        this.activeScans[network] = false;
+        this.saveState();
+        const provider = this.providers[network];
+        if (provider) {
+            provider.removeAllListeners('block');
+        }
+        console.log(`Radar stopped on ${network}`);
+    }
+
+    async scanHistory(network, blocksBack = 10) {
+        const provider = this.getProvider(network);
+        if (!provider) return;
+
+        const currentBlock = await provider.getBlockNumber();
+        console.log(`Scanning history on ${network} from ${currentBlock - blocksBack} to ${currentBlock}`);
+
+        for (let i = 0; i < blocksBack; i++) {
+            await this.scanBlock(network, currentBlock - i);
+        }
+    }
+
+    getStatus() {
+        return {
+            activeScans: this.activeScans,
+            availableNetworks: Object.keys(RPC_URLS)
+        };
     }
 }
 
