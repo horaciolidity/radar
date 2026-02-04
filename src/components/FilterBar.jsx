@@ -1,5 +1,5 @@
 import React from 'react';
-import { Filter, Layers, ShieldCheck, Zap, AlertTriangle, Ghost } from 'lucide-react';
+import { Filter, Layers, ShieldCheck, Zap, AlertTriangle, Ghost, Globe, History } from 'lucide-react';
 import { NETWORKS } from '../data/mockData';
 import { cn } from '../lib/utils';
 
