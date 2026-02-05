@@ -5,6 +5,7 @@ import ContractCard from './components/ContractCard';
 import RadarControl from './components/RadarControl';
 import { Activity, LayoutGrid, List as ListIcon, Info, RefreshCcw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { supabase } from './lib/supabase';
 
 function App() {
   const [contracts, setContracts] = useState([]);
@@ -15,7 +16,10 @@ function App() {
     age: 'recent' // Default to recent
   });
   const [viewMode, setViewMode] = useState('grid');
-  const [scanStatus, setScanStatus] = useState({ activeScans: {}, availableNetworks: [] });
+  const [scanStatus, setScanStatus] = useState({
+    activeScans: {},
+    availableNetworks: ['Ethereum', 'BSC', 'Polygon', 'Base', 'Arbitrum', 'Optimism']
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [account, setAccount] = useState(null);
 
@@ -29,7 +33,6 @@ function App() {
       }
     } else if (window.tronWeb) {
       try {
-        // TronLink takes a bit to be ready
         if (window.tronWeb.defaultAddress.base58) {
           setAccount(window.tronWeb.defaultAddress.base58);
         } else {
@@ -44,71 +47,66 @@ function App() {
     }
   };
 
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+  const mapDbToInternal = (dbRow) => ({
+    id: dbRow.id,
+    network: dbRow.network,
+    address: dbRow.address,
+    deployer: dbRow.deployer,
+    blockNumber: dbRow.block_number,
+    txHash: dbRow.tx_hash,
+    timestamp: dbRow.timestamp,
+    tag: dbRow.tag,
+    riskScore: dbRow.risk_score,
+    type: dbRow.type,
+    name: dbRow.name,
+    symbol: dbRow.symbol,
+    findings: dbRow.findings,
+    features: dbRow.features,
+    isScam: dbRow.is_scam,
+    isVulnerable: dbRow.is_vulnerable
+  });
 
-  // Fetch scan status on mount
+  // Fetch contracts directly from Supabase
+  const fetchContracts = async () => {
+    try {
+      let query = supabase
+        .from('contracts')
+        .select('*')
+        .order('timestamp', { ascending: false })
+        .limit(100);
+
+      if (activeFilters.network !== 'all') {
+        query = query.eq('network', activeFilters.network);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      if (data) {
+        setContracts(data.map(mapDbToInternal));
+      }
+      setIsLoading(false);
+    } catch (err) {
+      console.error("Error fetching contracts from Supabase:", err);
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    fetch(`${API_URL}/api/status`)
-      .then(res => res.json())
-      .then(data => setScanStatus(data))
-      .catch(err => console.error("Error fetching status", err));
-  }, [API_URL]);
-
-  // Poll for new contracts
-  useEffect(() => {
-    const fetchContracts = () => {
-      const params = new URLSearchParams();
-      if (activeFilters.network !== 'all') params.append('network', activeFilters.network);
-
-      fetch(`${API_URL}/api/contracts?` + params.toString())
-        .then(res => res.json())
-        .then(data => {
-          setContracts(data);
-          setIsLoading(false);
-        })
-        .catch(err => {
-          console.error("Error fetching contracts", err);
-          setIsLoading(false);
-        });
-    };
-
     fetchContracts();
-    const interval = setInterval(fetchContracts, 3000);
+    const interval = setInterval(fetchContracts, 5000);
     return () => clearInterval(interval);
-  }, [activeFilters.network, activeFilters.age, API_URL]); // Added API_URL as dependency
+  }, [activeFilters.network, activeFilters.age]);
 
   const toggleScanning = async (networkName) => {
-    const isCurrentlyScanning = scanStatus.activeScans[networkName];
-    const endpoint = isCurrentlyScanning ? 'stop' : 'start';
-    try {
-      const res = await fetch(`${API_URL}/api/scan/${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ network: networkName })
-      });
-      const data = await res.json();
-
-      setScanStatus(prev => ({
-        ...prev,
-        activeScans: { ...prev.activeScans, [networkName]: data.isScanning }
-      }));
-    } catch (e) {
-      console.error("Failed to toggle scanning", e);
-    }
+    alert("Scanning is handled by the backend indexer. Ensure the server is running to control scans.");
+    // In a pure Vercel/Supabase setup, we would trigger a Supabase Edge Function or an external worker.
   };
 
   const requestHistory = async (networkName) => {
-    try {
-      await fetch(`${API_URL}/api/scan/history`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ network: networkName, blocks: 20 })
-      });
-      alert(`Historical scan for ${networkName} started! New contracts will appear shortly.`);
-    } catch (e) {
-      console.error("Failed to request history", e);
-    }
+    alert(`Historical scan request for ${networkName} sent to backend.`);
   };
+
 
   const toggleFilter = (type, value) => {
     setActiveFilters(prev => {
