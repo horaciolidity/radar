@@ -2,17 +2,18 @@ import { ethers } from 'ethers';
 import { supabase } from './supabase';
 
 const RPC_CONFIG = {
-    'Ethereum': [import.meta.env.VITE_RPC_ETHEREUM, 'https://eth.llamarpc.com', 'https://ethereum.publicnode.com'],
-    'BSC': [import.meta.env.VITE_RPC_BSC, 'https://binance.llamarpc.com', 'https://bsc-dataseed.binance.org'],
-    'Polygon': [import.meta.env.VITE_RPC_POLYGON, 'https://polygon.llamarpc.com', 'https://polygon-rpc.com'],
-    'Base': [import.meta.env.VITE_RPC_BASE, 'https://base.llamarpc.com', 'https://mainnet.base.org'],
-    'Arbitrum': [import.meta.env.VITE_RPC_ARBITRUM, 'https://arbitrum.llamarpc.com', 'https://arb1.arbitrum.io/rpc'],
-    'Optimism': [import.meta.env.VITE_RPC_OPTIMISM, 'https://optimism.llamarpc.com', 'https://mainnet.optimism.io']
+    'Ethereum': [import.meta.env.VITE_RPC_ETHEREUM, 'https://rpc.ankr.com/eth', 'https://eth.llamarpc.com', 'https://ethereum.publicnode.com'],
+    'BSC': [import.meta.env.VITE_RPC_BSC, 'https://bsc-dataseed.binance.org', 'https://binance.llamarpc.com'],
+    'Polygon': [import.meta.env.VITE_RPC_POLYGON, 'https://polygon-rpc.com', 'https://polygon.llamarpc.com'],
+    'Base': [import.meta.env.VITE_RPC_BASE, 'https://mainnet.base.org', 'https://base.llamarpc.com'],
+    'Arbitrum': [import.meta.env.VITE_RPC_ARBITRUM, 'https://arb1.arbitrum.io/rpc', 'https://arbitrum.llamarpc.com'],
+    'Optimism': [import.meta.env.VITE_RPC_OPTIMISM, 'https://mainnet.optimism.io', 'https://optimism.llamarpc.com']
 };
 
 const getRpcUrl = (network) => {
     const urls = RPC_CONFIG[network] || [];
-    return urls.find(url => url && url.startsWith('http'));
+    const validUrls = urls.filter(url => url && url.startsWith('http'));
+    return validUrls[0] || null;
 };
 
 const SIGNATURES = {
@@ -156,7 +157,7 @@ export async function analyzeContract(address, deployer, provider, network) {
 class ContractManager {
     constructor() {
         this.providers = {};
-        this.activeScans = {};
+        this.lastBlocks = {};
     }
 
     getProvider(network) {
@@ -168,41 +169,63 @@ class ContractManager {
         return this.providers[network];
     }
 
-    async scanRecentBlocks(network, count = 5) {
+    async scanRecentBlocks(network, countOrStartBlock = 5) {
         const provider = this.getProvider(network);
         if (!provider) return;
 
         try {
             const currentBlock = await provider.getBlockNumber();
-            console.log(`[${network}] Scanning last ${count} blocks starting from ${currentBlock}...`);
 
-            for (let i = 0; i < count; i++) {
-                const blockNumber = currentBlock - i;
-                // Try to get block with full transactions directly
-                const block = await provider.send("eth_getBlockByNumber", [ethers.toBeHex(blockNumber), true]);
+            let startBlock;
+            if (typeof countOrStartBlock === 'number' && countOrStartBlock < 1000) {
+                // It's a count (e.g., scan last 5 blocks)
+                startBlock = currentBlock - countOrStartBlock;
+            } else {
+                // It's a specific block number
+                startBlock = countOrStartBlock;
+            }
 
-                if (!block || !block.transactions) {
-                    console.log(`[${network}] Block ${blockNumber} not found or empty.`);
-                    continue;
-                }
+            // If we've scanned before, don't re-scan old blocks
+            if (this.lastBlocks[network] && startBlock <= this.lastBlocks[network]) {
+                startBlock = this.lastBlocks[network] + 1;
+            }
 
-                console.log(`[${network}] Processing ${block.transactions.length} txs in block ${blockNumber}`);
+            if (startBlock > currentBlock) return; // Nothing new
 
-                const contractTxs = block.transactions.filter(tx => tx.to === null || tx.to === '0x0000000000000000000000000000000000000000');
+            console.log(`[${network}] Scanning from block ${startBlock} to ${currentBlock}...`);
 
-                for (const tx of contractTxs) {
-                    try {
-                        const receipt = await provider.getTransactionReceipt(tx.hash);
-                        if (receipt && receipt.contractAddress) {
-                            console.log(`[${network}] Found new contract: ${receipt.contractAddress}`);
-                            const analysis = await analyzeContract(receipt.contractAddress, tx.from, provider, network);
-                            await this.saveContract(analysis);
+            for (let b = startBlock; b <= currentBlock; b++) {
+                try {
+                    // Get block with full transactions
+                    const block = await provider.send("eth_getBlockByNumber", [ethers.toBeHex(b), true]);
+
+                    if (!block || !block.transactions) continue;
+
+                    const contractTxs = block.transactions.filter(tx => tx.to === null || tx.to === '0x0000000000000000000000000000000000000000');
+
+                    for (const tx of contractTxs) {
+                        try {
+                            const receipt = await provider.getTransactionReceipt(tx.hash);
+                            if (receipt && receipt.contractAddress) {
+                                console.log(`[${network}] Found new contract: ${receipt.contractAddress}`);
+                                const analysis = await analyzeContract(receipt.contractAddress, tx.from, provider, network);
+                                // Add block and tx data missing from analyzeContract
+                                analysis.block_number = b;
+                                analysis.tx_hash = tx.hash;
+                                analysis.timestamp = new Date(parseInt(block.timestamp, 16) * 1000).toISOString();
+
+                                await this.saveContract(analysis);
+                            }
+                        } catch (txErr) {
+                            console.warn(`[${network}] Failed tx receipt:`, txErr.message);
                         }
-                    } catch (txErr) {
-                        console.warn(`[${network}] Failed to process tx ${tx.hash}:`, txErr.message);
                     }
+                } catch (blockErr) {
+                    console.error(`[${network}] Error on block ${b}:`, blockErr.message);
                 }
             }
+
+            this.lastBlocks[network] = currentBlock;
         } catch (e) {
             console.error(`Scan error on ${network}:`, e);
         }
@@ -210,9 +233,16 @@ class ContractManager {
 
     async saveContract(contract) {
         try {
+            // Ensure the ID is unique and consistent
+            const contractToSave = {
+                ...contract,
+                id: `${contract.network}-${contract.address}`.toLowerCase()
+            };
+
             const { error } = await supabase
                 .from('contracts')
-                .upsert(contract, { onConflict: 'id' });
+                .upsert(contractToSave, { onConflict: 'id' });
+
             if (error) console.error("Supabase Save Error:", error.message);
         } catch (e) {
             console.error("Save failed:", e);
@@ -224,13 +254,10 @@ class ContractManager {
         if (!provider) return null;
 
         try {
-            // Check if contract exists
             const bytecode = await provider.getCode(address);
             if (bytecode === '0x') return null;
 
-            // Try to find tx if possible (limited by RPC)
-            // For now, assume current user is analyzing it
-            const analysis = await analyzeContract(address, '0x...', provider, network);
+            const analysis = await analyzeContract(address, '0x0000000000000000000000000000000000000000', provider, network);
             await this.saveContract(analysis);
             return analysis;
         } catch (e) {
@@ -240,3 +267,4 @@ class ContractManager {
 }
 
 export const contractManager = new ContractManager();
+

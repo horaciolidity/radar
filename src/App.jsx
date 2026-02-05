@@ -115,50 +115,45 @@ function App() {
     };
   }, [activeFilters.network]);
 
-  const toggleScanning = async (networkName) => {
-    const isCurrentlyScanning = scanStatus.activeScans[networkName];
+  // Client-side scanning loops
+  useEffect(() => {
+    const intervals = {};
+
+    // Start intervals for each active scan
+    Object.keys(scanStatus.activeScans).forEach(network => {
+      if (scanStatus.activeScans[network]) {
+        console.log(`[Radar] Starting client-side loop for ${network}`);
+        // Initial scan
+        contractManager.scanRecentBlocks(network, 2);
+
+        // Setup interval (every 20 seconds)
+        intervals[network] = setInterval(() => {
+          contractManager.scanRecentBlocks(network);
+        }, 20000);
+      }
+    });
+
+    return () => {
+      // Cleanup all intervals on unmount or status change
+      Object.values(intervals).forEach(clearInterval);
+    };
+  }, [scanStatus.activeScans]);
+
+  const toggleScanning = (networkName) => {
     setScanStatus(prev => ({
       ...prev,
-      activeScans: { ...prev.activeScans, [networkName]: !isCurrentlyScanning }
+      activeScans: {
+        ...prev.activeScans,
+        [networkName]: !prev.activeScans[networkName]
+      }
     }));
-
-    try {
-      if (!isCurrentlyScanning) {
-        await fetch(`http://localhost:3001/api/scan/start`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ network: networkName })
-        });
-      } else {
-        await fetch(`http://localhost:3001/api/scan/stop`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ network: networkName })
-        });
-      }
-    } catch (e) {
-      console.error("Failed to communicate with backend:", e.message);
-      // Fallback to browser scan if backend is not available
-      if (!isCurrentlyScanning) {
-        contractManager.scanRecentBlocks(networkName, 1);
-      }
-    }
   };
 
   const requestHistory = async (networkName) => {
     setIsLoading(true);
-    try {
-      await fetch(`http://localhost:3001/api/scan/history`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ network: networkName, blocks: 20 })
-      });
-      alert(`Historical scan for ${networkName} requested from server!`);
-    } catch (e) {
-      console.warn("Backend not available, performing browser-side scan...");
-      await contractManager.scanRecentBlocks(networkName, 10);
-      alert(`Historical scan for ${networkName} completed (browser-side)!`);
-    }
+    console.log(`[Radar] Running historical scan for ${networkName} (browser-side)...`);
+    await contractManager.scanRecentBlocks(networkName, 10);
+    alert(`Historical scan for ${networkName} completed! New contracts saved to Supabase.`);
     setIsLoading(false);
   };
 
