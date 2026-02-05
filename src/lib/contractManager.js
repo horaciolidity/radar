@@ -2,12 +2,21 @@ import { ethers } from 'ethers';
 import { supabase } from './supabase';
 
 const RPC_CONFIG = {
-    'Ethereum': [import.meta.env.VITE_RPC_ETHEREUM, 'https://eth.llamarpc.com', 'https://ethereum.publicnode.com', 'https://cloudflare-eth.com'],
-    'BSC': [import.meta.env.VITE_RPC_BSC, 'https://binance.llamarpc.com', 'https://bsc-dataseed.binance.org'],
-    'Polygon': [import.meta.env.VITE_RPC_POLYGON, 'https://polygon.llamarpc.com', 'https://polygon-rpc.com'],
-    'Base': [import.meta.env.VITE_RPC_BASE, 'https://mainnet.base.org', 'https://base.llamarpc.com'],
-    'Arbitrum': [import.meta.env.VITE_RPC_ARBITRUM, 'https://arbitrum.llamarpc.com', 'https://arb1.arbitrum.io/rpc'],
-    'Optimism': [import.meta.env.VITE_RPC_OPTIMISM, 'https://optimism.llamarpc.com', 'https://mainnet.optimism.io']
+    'Ethereum': [import.meta.env.VITE_RPC_ETHEREUM, 'https://eth.publicnode.com', 'https://cloudflare-eth.com', 'https://ethereum.publicnode.com'],
+    'BSC': [import.meta.env.VITE_RPC_BSC, 'https://bsc-dataseed.binance.org', 'https://bsc-dataseed1.defibit.io', 'https://bsc-dataseed1.ninicoin.io'],
+    'Polygon': [import.meta.env.VITE_RPC_POLYGON, 'https://polygon-rpc.com', 'https://rpc-mainnet.maticvigil.com'],
+    'Base': [import.meta.env.VITE_RPC_BASE, 'https://mainnet.base.org', 'https://developer-access-mainnet.base.org'],
+    'Arbitrum': [import.meta.env.VITE_RPC_ARBITRUM, 'https://arb1.arbitrum.io/rpc', 'https://arbitrum.publicnode.com'],
+    'Optimism': [import.meta.env.VITE_RPC_OPTIMISM, 'https://mainnet.optimism.io', 'https://optimism.publicnode.com']
+};
+
+const NETWORK_IDS = {
+    'Ethereum': 1,
+    'BSC': 56,
+    'Polygon': 137,
+    'Base': 8453,
+    'Arbitrum': 42161,
+    'Optimism': 10
 };
 
 const getRpcUrl = (network) => {
@@ -173,7 +182,9 @@ class ContractManager {
         const url = getRpcUrl(network);
         if (!url) return null;
         if (!this.providers[network]) {
-            this.providers[network] = new ethers.JsonRpcProvider(url);
+            // Use static network to avoid detectNetwork calls on start
+            const chainId = NETWORK_IDS[network];
+            this.providers[network] = new ethers.JsonRpcProvider(url, chainId ? { chainId, name: network.toLowerCase() } : undefined, { staticNetwork: true });
         }
         return this.providers[network];
     }
@@ -187,46 +198,37 @@ class ContractManager {
 
             let startBlock;
             if (typeof countOrStartBlock === 'number' && countOrStartBlock < 1000) {
-                // It's a count (e.g., scan last 5 blocks)
                 startBlock = currentBlock - countOrStartBlock;
             } else {
-                // It's a specific block number
                 startBlock = countOrStartBlock;
             }
 
-            // If we've scanned before, don't re-scan old blocks
             if (this.lastBlocks[network] && startBlock <= this.lastBlocks[network]) {
                 startBlock = this.lastBlocks[network] + 1;
             }
 
-            if (startBlock > currentBlock) return; // Nothing new
+            if (startBlock > currentBlock) return;
 
-            console.log(`[${network}] Scanning from block ${startBlock} to ${currentBlock}...`);
+            console.log(`[${network}] Height: ${startBlock} -> ${currentBlock}`);
 
             for (let b = startBlock; b <= currentBlock; b++) {
-                // Get block with full transactions. Use toQuantity to avoid leading zeros in hex
                 const block = await provider.send("eth_getBlockByNumber", [ethers.toQuantity(b), true]);
 
-                if (!block) {
-                    throw new Error(`Block ${b} not found (RPC failure)`);
-                }
+                if (!block) throw new Error(`Empty block ${b}`);
 
                 if (!block.transactions || !Array.isArray(block.transactions)) continue;
 
                 for (const tx of block.transactions) {
-                    // Identify contract creation with tx.to === null or the zero address
                     if (tx.to === null || tx.to === '0x0000000000000000000000000000000000000000') {
                         try {
                             const receipt = await provider.getTransactionReceipt(tx.hash);
                             if (receipt && receipt.contractAddress) {
-                                console.log("[Radar] Contract detected", {
-                                    network,
-                                    address: receipt.contractAddress,
-                                    txHash: tx.hash
-                                });
+                                console.group(`[Radar] New Contract on ${network}`);
+                                console.log("Address:", receipt.contractAddress);
+                                console.log("Hash:", tx.hash);
+                                console.groupEnd();
 
                                 const analysis = await analyzeContract(receipt.contractAddress, tx.from, provider, network);
-                                // Add block and tx data missing from analyzeContract
                                 analysis.block_number = b;
                                 analysis.tx_hash = tx.hash;
                                 analysis.timestamp = new Date(parseInt(block.timestamp, 16) * 1000).toISOString();
@@ -234,7 +236,7 @@ class ContractManager {
                                 await this.saveContract(analysis);
                             }
                         } catch (txErr) {
-                            console.warn(`[Radar] Error on receipt ${tx.hash}:`, txErr.message);
+                            console.warn(`[Radar] Receipt error ${tx.hash}:`, txErr.message);
                         }
                     }
                 }
@@ -242,7 +244,8 @@ class ContractManager {
 
             this.lastBlocks[network] = currentBlock;
         } catch (e) {
-            console.error(`Scan error on ${network}:`, e);
+            console.error(`[${network}] Scan Failed:`, e.message);
+            // If it's a CORS/Fetch error, maybe rotate RPC? (advanced)
         }
     }
 
