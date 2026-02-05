@@ -7,6 +7,7 @@ import { Activity, LayoutGrid, List as ListIcon, Info, RefreshCcw } from 'lucide
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from './lib/supabase';
 import { contractManager } from './lib/contractManager';
+import WalletRadar from './components/WalletRadar';
 
 function App() {
   const [contracts, setContracts] = useState([]);
@@ -26,6 +27,7 @@ function App() {
   const [foundThisSession, setFoundThisSession] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
+  const [activeTab, setActiveTab] = useState('contracts'); // 'contracts' | 'wallets'
 
   const mapDbToInternal = (dbRow) => ({
     id: dbRow.id,
@@ -254,121 +256,155 @@ function App() {
       <Header account={account} onConnect={connectWallet} onSearch={handleSearch} />
 
       <main className="flex-1 container mx-auto px-6 py-8">
-        {/* Dashboard Hero */}
-        <section className="mb-12">
-          <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-primary font-mono text-sm">
-                <Activity size={16} className="animate-pulse" />
-                MULTI-CHAIN RADAR ACTIVE {foundThisSession > 0 && `• [${foundThisSession} NEW DETECTIONS]`}
-              </div>
-              <h2 className="text-4xl font-black tracking-tight text-white uppercase italic">
-                Network <span className="text-primary">Radar</span>
-              </h2>
-              <p className="text-zinc-400 max-w-xl">
-                Real-time security auditing and historical contract detection across all major EVM networks.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <div className="flex bg-surface border border-white/5 rounded-lg p-1">
-                <button
-                  onClick={() => setViewMode('grid')}
-                  className={`p-2 rounded-md ${viewMode === 'grid' ? 'bg-zinc-800 text-white' : 'text-zinc-500'}`}
-                >
-                  <LayoutGrid size={18} />
-                </button>
-                <button
-                  onClick={() => setViewMode('list')}
-                  className={`p-2 rounded-md ${viewMode === 'list' ? 'bg-zinc-800 text-white' : 'text-zinc-500'}`}
-                >
-                  <ListIcon size={18} />
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-8">
-            <RadarControl
-              scanStatus={scanStatus}
-              onToggle={toggleScanning}
-              onHistory={requestHistory}
-            />
-          </div>
-
-          <div className="mt-8">
-            <FilterBar activeFilters={activeFilters} toggleFilter={toggleFilter} />
-          </div>
-        </section>
-
-        {/* Results Stats */}
-        <div className="flex items-center justify-between mb-6 px-2">
-          <div className="text-xs font-mono text-zinc-500 uppercase tracking-widest">
-            Showing <span className="text-white font-bold">{filteredContracts.length}</span> active signals
-          </div>
-          <div className="flex items-center gap-4 text-[10px] text-zinc-500">
-            <div className="flex items-center gap-1">
-              <div className="w-2 h-2 rounded-full bg-success" /> Safe
-            </div>
-            <div className="flex items-center gap-1">
-              <div className="w-2 h-2 rounded-full bg-warning" /> Warning
-            </div>
-            <div className="flex items-center gap-1">
-              <div className="w-2 h-2 rounded-full bg-danger" /> Danger
-            </div>
+        {/* Navigation Tabs */}
+        <div className="flex justify-center mb-12">
+          <div className="bg-surface/50 p-1.5 rounded-2xl border border-white/5 flex gap-2">
+            <button
+              onClick={() => setActiveTab('contracts')}
+              className={cn(
+                "px-8 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all italic",
+                activeTab === 'contracts'
+                  ? "bg-primary text-black shadow-lg shadow-primary/20"
+                  : "text-zinc-500 hover:text-zinc-300"
+              )}
+            >
+              Contract Radar
+            </button>
+            <button
+              onClick={() => setActiveTab('wallets')}
+              className={cn(
+                "px-8 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all italic",
+                activeTab === 'wallets'
+                  ? "bg-primary text-black shadow-lg shadow-primary/20"
+                  : "text-zinc-500 hover:text-zinc-300"
+              )}
+            >
+              Wallet Finder
+            </button>
           </div>
         </div>
 
-        {/* Feed */}
-        {filteredContracts.length > 0 ? (
-          <motion.div
-            layout
-            className={viewMode === 'grid' ? "radar-grid" : "space-y-4 max-w-4xl mx-auto"}
-          >
-            <AnimatePresence mode='popLayout'>
-              {filteredContracts.map((contract) => (
-                <motion.div
-                  key={contract.id}
-                  layout
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  transition={{ duration: 0.4, ease: "easeOut" }}
-                >
-                  <ContractCard contract={contract} />
-                </motion.div>
-              ))}
-            </AnimatePresence>
-          </motion.div>
-        ) : (
-          <div className="py-24 text-center glass-card rounded-3xl border-dashed border-2 flex flex-col items-center gap-4">
-            <div className="w-16 h-16 bg-surface-lighter rounded-full flex items-center justify-center text-zinc-600">
-              <Info size={32} />
-            </div>
-            <div className="space-y-1">
-              <h3 className="text-xl font-bold text-white">No contracts found</h3>
-              <p className="text-zinc-500">Try adjusting your filters or starting a radar scan above</p>
-            </div>
-          </div>
-        )}
+        {activeTab === 'contracts' ? (
+          <div className="animate-in fade-in duration-500">
+            {/* Dashboard Hero */}
+            <section className="mb-12">
+              <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-primary font-mono text-sm">
+                    <Activity size={16} className="animate-pulse" />
+                    MULTI-CHAIN RADAR ACTIVE {foundThisSession > 0 && `• [${foundThisSession} NEW DETECTIONS]`}
+                  </div>
+                  <h2 className="text-4xl font-black tracking-tight text-white uppercase italic">
+                    Network <span className="text-primary">Radar</span>
+                  </h2>
+                  <p className="text-zinc-400 max-w-xl">
+                    Real-time security auditing and historical contract detection across all major EVM networks.
+                  </p>
+                </div>
 
-        {/* Pagination */}
-        {contracts.length > 0 && hasMore && (
-          <div className="mt-12 flex justify-center">
-            <button
-              onClick={loadMore}
-              disabled={isFetchingMore}
-              className="group relative px-8 py-3 bg-surface border border-white/10 rounded-xl font-bold text-sm text-zinc-400 hover:text-white hover:border-primary/50 transition-all flex items-center gap-3 overflow-hidden shadow-lg hover:shadow-primary/10"
-            >
-              <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-              {isFetchingMore ? (
-                <RefreshCcw size={16} className="animate-spin text-primary" />
-              ) : (
-                <Activity size={16} className="group-hover:text-primary transition-colors" />
-              )}
-              {isFetchingMore ? 'Fetching more signals...' : 'Load 100 older contracts'}
-            </button>
+                <div className="flex items-center gap-3">
+                  <div className="flex bg-surface border border-white/5 rounded-lg p-1">
+                    <button
+                      onClick={() => setViewMode('grid')}
+                      className={`p-2 rounded-md ${viewMode === 'grid' ? 'bg-zinc-800 text-white' : 'text-zinc-500'}`}
+                    >
+                      <LayoutGrid size={18} />
+                    </button>
+                    <button
+                      onClick={() => setViewMode('list')}
+                      className={`p-2 rounded-md ${viewMode === 'list' ? 'bg-zinc-800 text-white' : 'text-zinc-500'}`}
+                    >
+                      <ListIcon size={18} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-8">
+                <RadarControl
+                  scanStatus={scanStatus}
+                  onToggle={toggleScanning}
+                  onHistory={requestHistory}
+                />
+              </div>
+
+              <div className="mt-8">
+                <FilterBar activeFilters={activeFilters} toggleFilter={toggleFilter} />
+              </div>
+            </section>
+
+            {/* Results Stats */}
+            <div className="flex items-center justify-between mb-6 px-2">
+              <div className="text-xs font-mono text-zinc-500 uppercase tracking-widest">
+                Showing <span className="text-white font-bold">{filteredContracts.length}</span> active signals
+              </div>
+              <div className="flex items-center gap-4 text-[10px] text-zinc-500">
+                <div className="flex items-center gap-1">
+                  <div className="w-2 h-2 rounded-full bg-success" /> Safe
+                </div>
+                <div className="flex items-center gap-1">
+                  <div className="w-2 h-2 rounded-full bg-warning" /> Warning
+                </div>
+                <div className="flex items-center gap-1">
+                  <div className="w-2 h-2 rounded-full bg-danger" /> Danger
+                </div>
+              </div>
+            </div>
+
+            {/* Feed */}
+            {filteredContracts.length > 0 ? (
+              <motion.div
+                layout
+                className={viewMode === 'grid' ? "radar-grid" : "space-y-4 max-w-4xl mx-auto"}
+              >
+                <AnimatePresence mode='popLayout'>
+                  {filteredContracts.map((contract) => (
+                    <motion.div
+                      key={contract.id}
+                      layout
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      transition={{ duration: 0.4, ease: "easeOut" }}
+                    >
+                      <ContractCard contract={contract} />
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </motion.div>
+            ) : (
+              <div className="py-24 text-center glass-card rounded-3xl border-dashed border-2 flex flex-col items-center gap-4">
+                <div className="w-16 h-16 bg-surface-lighter rounded-full flex items-center justify-center text-zinc-600">
+                  <Info size={32} />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="text-xl font-bold text-white">No contracts found</h3>
+                  <p className="text-zinc-500">Try adjusting your filters or starting a radar scan above</p>
+                </div>
+              </div>
+            )}
+
+            {/* Pagination */}
+            {contracts.length > 0 && hasMore && (
+              <div className="mt-12 flex justify-center">
+                <button
+                  onClick={loadMore}
+                  disabled={isFetchingMore}
+                  className="group relative px-8 py-3 bg-surface border border-white/10 rounded-xl font-bold text-sm text-zinc-400 hover:text-white hover:border-primary/50 transition-all flex items-center gap-3 overflow-hidden shadow-lg hover:shadow-primary/10"
+                >
+                  <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  {isFetchingMore ? (
+                    <RefreshCcw size={16} className="animate-spin text-primary" />
+                  ) : (
+                    <Activity size={16} className="group-hover:text-primary transition-colors" />
+                  )}
+                  {isFetchingMore ? 'Fetching more signals...' : 'Load 100 older contracts'}
+                </button>
+              </div>
+            )}
           </div>
+        ) : (
+          <WalletRadar />
         )}
       </main>
 
