@@ -1,13 +1,18 @@
 import { ethers } from 'ethers';
 import { supabase } from './supabase';
 
-const RPC_URLS = {
-    'Ethereum': 'https://rpc.ankr.com/eth',
-    'BSC': 'https://rpc.ankr.com/bsc',
-    'Polygon': 'https://rpc.ankr.com/polygon',
-    'Base': 'https://rpc.ankr.com/base',
-    'Arbitrum': 'https://rpc.ankr.com/arbitrum',
-    'Optimism': 'https://rpc.ankr.com/optimism'
+const RPC_CONFIG = {
+    'Ethereum': [import.meta.env.VITE_RPC_ETHEREUM, 'https://eth.llamarpc.com', 'https://ethereum.publicnode.com'],
+    'BSC': [import.meta.env.VITE_RPC_BSC, 'https://binance.llamarpc.com', 'https://bsc-dataseed.binance.org'],
+    'Polygon': [import.meta.env.VITE_RPC_POLYGON, 'https://polygon.llamarpc.com', 'https://polygon-rpc.com'],
+    'Base': [import.meta.env.VITE_RPC_BASE, 'https://base.llamarpc.com', 'https://mainnet.base.org'],
+    'Arbitrum': [import.meta.env.VITE_RPC_ARBITRUM, 'https://arbitrum.llamarpc.com', 'https://arb1.arbitrum.io/rpc'],
+    'Optimism': [import.meta.env.VITE_RPC_OPTIMISM, 'https://optimism.llamarpc.com', 'https://mainnet.optimism.io']
+};
+
+const getRpcUrl = (network) => {
+    const urls = RPC_CONFIG[network] || [];
+    return urls.find(url => url && url.startsWith('http'));
 };
 
 const SIGNATURES = {
@@ -136,9 +141,10 @@ class ContractManager {
     }
 
     getProvider(network) {
-        if (!RPC_URLS[network]) return null;
+        const url = getRpcUrl(network);
+        if (!url) return null;
         if (!this.providers[network]) {
-            this.providers[network] = new ethers.JsonRpcProvider(RPC_URLS[network]);
+            this.providers[network] = new ethers.JsonRpcProvider(url);
         }
         return this.providers[network];
     }

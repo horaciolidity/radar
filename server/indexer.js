@@ -9,13 +9,18 @@ if (!fs.existsSync(DB_PATH)) fs.mkdirSync(DB_PATH);
 
 const STATE_FILE = path.join(DB_PATH, 'state.json');
 
-const RPC_URLS = {
-    'Ethereum': 'https://rpc.ankr.com/eth',
-    'BSC': 'https://rpc.ankr.com/bsc',
-    'Polygon': 'https://rpc.ankr.com/polygon',
-    'Base': 'https://rpc.ankr.com/base',
-    'Arbitrum': 'https://rpc.ankr.com/arbitrum',
-    'Optimism': 'https://rpc.ankr.com/optimism'
+const RPC_CONFIG = {
+    'Ethereum': [process.env.RPC_ETHEREUM, 'https://eth.llamarpc.com', 'https://ethereum.publicnode.com'],
+    'BSC': [process.env.RPC_BSC, 'https://binance.llamarpc.com', 'https://bsc-dataseed.binance.org'],
+    'Polygon': [process.env.RPC_POLYGON, 'https://polygon.llamarpc.com', 'https://polygon-rpc.com'],
+    'Base': [process.env.RPC_BASE, 'https://base.llamarpc.com', 'https://mainnet.base.org'],
+    'Arbitrum': [process.env.RPC_ARBITRUM, 'https://arbitrum.llamarpc.com', 'https://arb1.arbitrum.io/rpc'],
+    'Optimism': [process.env.RPC_OPTIMISM, 'https://optimism.llamarpc.com', 'https://mainnet.optimism.io']
+};
+
+const getRpcUrl = (network) => {
+    const urls = RPC_CONFIG[network] || [];
+    return urls.find(url => url && url.startsWith('http'));
 };
 
 export class ContractIndexer {
@@ -102,9 +107,14 @@ export class ContractIndexer {
     }
 
     getProvider(network) {
-        if (!RPC_URLS[network]) return null;
+        const url = getRpcUrl(network);
+        if (!url) {
+            console.error(`[${network}] No RPC URL configured!`);
+            return null;
+        }
         if (!this.providers[network]) {
-            this.providers[network] = new ethers.JsonRpcProvider(RPC_URLS[network]);
+            console.log(`[${network}] connecting to ${url}...`);
+            this.providers[network] = new ethers.JsonRpcProvider(url);
         }
         return this.providers[network];
     }
@@ -214,50 +224,60 @@ export class ContractIndexer {
         }
     }
 
-    seedInitialData() {
-        if (this.contractStorage.length > 0) return;
+    async seedInitialData() {
+        try {
+            const { count, error } = await supabase
+                .from('contracts')
+                .select('*', { count: 'exact', head: true });
 
-        console.log("Seeding initial data for demonstration...");
-        const seed = [
-            {
-                id: 'eth-0x1',
-                name: 'Uniswap V3 Factory',
-                symbol: 'UNI-V3',
-                network: 'Ethereum',
-                blockchain: 'Ethereum',
-                address: '0x1F98431c8aD98523631AE4a59f267346ea31F984',
-                deployer: '0x1a21...',
-                tag: 'SAFE',
-                riskScore: 5,
-                type: 'DEX Factory',
-                findings: [],
-                features: ['Verified', 'Multi-sig'],
-                timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24 * 400).toISOString() // > 1 year ago
-            },
-            {
-                id: 'eth-0x2',
-                name: 'Tether USD',
-                symbol: 'USDT',
-                network: 'Ethereum',
-                blockchain: 'Ethereum',
-                address: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
-                deployer: '0x3691...',
-                tag: 'SAFE',
-                riskScore: 10,
-                type: 'Stablecoin',
-                findings: [],
-                features: ['Centralized', 'Blacklist'],
-                timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24 * 500).toISOString() // > 1 year ago
+            if (error) throw error;
+            if (count > 0) return;
+
+            console.log("Seeding initial data for demonstration...");
+            const seed = [
+                {
+                    id: 'eth-0x1',
+                    name: 'Uniswap V3 Factory',
+                    symbol: 'UNI-V3',
+                    network: 'Ethereum',
+                    address: '0x1F98431c8aD98523631AE4a59f267346ea31F984',
+                    deployer: '0x1a21...',
+                    tag: 'SAFE',
+                    riskScore: 5,
+                    type: 'DEX Factory',
+                    findings: [],
+                    features: ['Verified', 'Multi-sig'],
+                    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24 * 400).toISOString() // > 1 year ago
+                },
+                {
+                    id: 'eth-0x2',
+                    name: 'Tether USD',
+                    symbol: 'USDT',
+                    network: 'Ethereum',
+                    address: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+                    deployer: '0x3691...',
+                    tag: 'SAFE',
+                    riskScore: 10,
+                    type: 'Stablecoin',
+                    findings: [],
+                    features: ['Centralized', 'Blacklist'],
+                    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24 * 500).toISOString() // > 1 year ago
+                }
+            ];
+
+            for (const contract of seed) {
+                await this.addContract(contract);
             }
-        ];
-        this.contractStorage = seed;
-        this.saveContracts();
+            console.log("Seeding completed.");
+        } catch (err) {
+            console.error("Seeding failed:", err.message);
+        }
     }
 
     getStatus() {
         return {
             activeScans: this.activeScans,
-            availableNetworks: Object.keys(RPC_URLS)
+            availableNetworks: Object.keys(RPC_CONFIG)
         };
     }
 }

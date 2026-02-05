@@ -14,7 +14,7 @@ function App() {
     network: 'all',
     safety: [],
     risk: [],
-    age: 'recent'
+    age: 'all'
   });
   const [viewMode, setViewMode] = useState('grid');
   const [scanStatus, setScanStatus] = useState({
