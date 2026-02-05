@@ -185,6 +185,9 @@ export async function analyzeContract(address, deployer, provider, network = 'Et
         }
 
         analysis.timestamp = new Date().toISOString();
+        analysis.bytecode = bytecode.length > 1000 ? bytecode.slice(0, 500) + "..." + bytecode.slice(-500) : bytecode;
+        analysis.bytecodeSize = (bytecode.length - 2) / 2;
+
         return analysis;
 
     } catch (error) {

@@ -157,6 +157,9 @@ export async function analyzeContract(address, deployer, provider, network) {
             analysis.tag = "SAFE";
         }
 
+        analysis.bytecode = bytecode.length > 600 ? bytecode.slice(0, 300) + "..." + bytecode.slice(-300) : bytecode;
+        analysis.bytecode_size = (bytecode.length - 2) / 2;
+
         return analysis;
     } catch (error) {
         console.error("Analysis failed", error);
