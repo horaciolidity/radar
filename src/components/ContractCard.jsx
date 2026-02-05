@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
     ShieldCheck, ShieldAlert, Zap, Lock, ExternalLink,
     Copy, AlertCircle, RefreshCw, ChevronDown, ChevronUp,
-    Code2, Wallet, Database, AlertTriangle
+    Code2, Wallet, Database, AlertTriangle, Search
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { NETWORKS } from '../data/mockData';

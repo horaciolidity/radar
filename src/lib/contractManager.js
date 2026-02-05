@@ -29,11 +29,13 @@ const SIGNATURES = {
     SELFDESTRUCT: 'ff',
     DELEGATECALL: 'f4',
     TRANSFER: 'a9059cbb',
+    TRANSFER_FROM: '23b872dd',
     APPROVE: '095ea7b3',
     OWNER: '8da5cb5b',
     TOTAL_SUPPLY: '18160ddd',
     MINT: '40c10f19',
-    BURN: '4296696b'
+    BURN: '4296696b',
+    PAIR_FACTORY: 'c9c991c0'
 };
 
 export async function analyzeContract(address, deployer, provider, network) {
@@ -103,9 +105,33 @@ export async function analyzeContract(address, deployer, provider, network) {
             analysis.features.push("Ownable");
         }
 
-        if (bytecode.includes('40c10f19')) {
+        if (bytecode.includes(SIGNATURES.MINT)) {
             analysis.is_mintable = true;
             analysis.features.push("Mintable");
+
+            if (analysis.features.includes("Ownable")) {
+                analysis.findings.push({
+                    type: "Centralized Minting",
+                    severity: "HIGH",
+                    description: "Owner can mint new tokens at will, potentially diluting holders."
+                });
+                analysis.risk_score += 30;
+            }
+        }
+
+        if (bytecode.includes(SIGNATURES.BURN)) {
+            analysis.is_burnable = true;
+            analysis.features.push("Burnable");
+        }
+
+        // Transfer Tax Heuristic
+        if (bytecode.includes('405c') && hasTransfer) {
+            analysis.features.push("Tax Logic");
+            analysis.findings.push({
+                type: "Transfer Tax",
+                severity: "LOW",
+                description: "Contract may charge fees on transfers based on arithmetic operations in transfer flow."
+            });
         }
 
         // Honeypot Heuristic

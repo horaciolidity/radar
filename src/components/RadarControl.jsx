@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Activity, RefreshCcw, History, Search, Globe, Cpu } from 'lucide-react';
+import { Activity, RefreshCcw, History, Globe, Cpu } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { contractManager } from '../lib/contractManager';
 
