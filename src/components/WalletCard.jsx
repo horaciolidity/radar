@@ -84,6 +84,10 @@ export default function WalletCard({ wallet }) {
                             <span className="text-xs font-mono text-zinc-500 uppercase tracking-widest flex items-center gap-1">
                                 <Globe size={10} /> {wallet.network}
                             </span>
+                            <span className="text-zinc-700 mx-1">•</span>
+                            <span className="text-xs font-mono text-zinc-500 uppercase tracking-widest flex items-center gap-1">
+                                <span className="opacity-70">📍 {wallet.country || 'Neutral'}</span>
+                            </span>
                         </div>
                     </div>
                 </div>
@@ -130,13 +134,13 @@ export default function WalletCard({ wallet }) {
                 <div className="bg-black/40 rounded-2xl p-4 border border-white/5 transition-colors group-hover/wallet:border-white/10">
                     <div className="flex items-center gap-2 text-zinc-500 mb-2">
                         <ShieldCheck size={12} />
-                        <span className="text-[9px] uppercase font-black tracking-widest">Status</span>
+                        <span className="text-[9px] uppercase font-black tracking-widest">Entity / Status</span>
                     </div>
                     <div className={cn(
                         "text-sm font-bold uppercase italic",
-                        wallet.is_multisig ? "text-success" : (isWhale ? "text-primary" : "text-success")
+                        wallet.exchange ? "text-amber-400" : (wallet.is_multisig ? "text-success" : (isWhale ? "text-primary" : "text-success"))
                     )}>
-                        {wallet.is_multisig ? "Multi-sig Safe" : (isWhale ? "High Value Whale" : "Active Wallet")}
+                        {wallet.exchange ? `${wallet.exchange} CEX` : (wallet.is_multisig ? "Multi-sig Safe" : (isWhale ? "High Value Whale" : "Active Wallet"))}
                     </div>
                 </div>
             </div>

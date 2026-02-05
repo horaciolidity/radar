@@ -175,6 +175,7 @@ class WalletManager {
                         if (balanceUsd >= 1000) {
                             const isMultisig = await this.checkIsMultisig(address, provider);
                             const tokens = await this.fetchTokens(address, provider, network);
+                            const entity = this.detectEntity(address);
 
                             await this.saveWallet({
                                 address,
@@ -183,6 +184,8 @@ class WalletManager {
                                 balance_usd: balanceUsd,
                                 is_multisig: isMultisig,
                                 tokens: tokens,
+                                country: entity.country,
+                                exchange: entity.exchange,
                                 last_seen: new Date(parseInt(block.timestamp, 16) * 1000).toISOString(),
                                 tx_hash: block.transactions[0]?.hash
                             });
@@ -232,6 +235,29 @@ class WalletManager {
         } catch (e) {
             return false;
         }
+    }
+
+    detectEntity(address) {
+        const addr = address.toLowerCase();
+        const ENTITY_MAP = {
+            '0x28c6c06290cc3f951666687c50117bbc99ef9d69': { exchange: 'Binance', country: 'International' },
+            '0xab5801a7d398351b8be11c439e05c5b3259aec9b': { exchange: 'Coinbase', country: 'USA' },
+            '0x3f5ce5fb13e9320d9029d3e767216f05f782e5b4': { exchange: 'Binance', country: 'International' },
+            '0xd24400538f9f6942172c37e6a744ad521598f800': { exchange: 'OKX', country: 'Seychelles' },
+            '0x0d0707963952f2fba59dd06f2b425ace40b492fe': { exchange: 'Gate.io', country: 'Cayman Islands' },
+            '0x21a31ee1afc51d94c2efccaa2092ad1028285549': { exchange: 'Kraken', country: 'USA' },
+            '0xee58d73e04746f1401da01844ccd0b561c210dfc': { exchange: 'Bybit', country: 'Dubai' },
+            '0x5dd596c901987a2b28c38a9c1dfbf86fffc15d77': { exchange: 'KuCoin', country: 'Seychelles' },
+            '0x6262998ced04146fa42253a5c0af90ca02dfd274': { exchange: 'Crypto.com', country: 'Singapore' },
+            '0x77134cb068a2adb35f157ad4745d403939a033c9': { exchange: 'Bitfinex', country: 'British Virgin Islands' },
+            '0x30376f920f666b607ea0191838495034638a2e1d': { exchange: 'HTX (Huobi)', country: 'Seychelles' },
+            '0xcd34707128608f0298a445f1b1451f08cb3d79b6': { exchange: 'Bitget', country: 'Seychelles' },
+            '0x0eb301b17e472659e9a4f89d34346062f22b704e': { exchange: 'Bitstamp', country: 'Luxembourg' },
+            '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': { exchange: 'WETH Wrapper', country: 'Blockchain Protocol' }
+        };
+
+        if (ENTITY_MAP[addr]) return ENTITY_MAP[addr];
+        return { exchange: null, country: 'Global' };
     }
 
     async fetchTokens(address, provider, network) {
