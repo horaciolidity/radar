@@ -1,7 +1,7 @@
 import React from 'react';
 import { Radar, Bell, Search, Wallet, TrendingUp } from 'lucide-react';
 
-export default function Header({ account, onConnect }) {
+export default function Header({ account, onConnect, onSearch }) {
     return (
         <header className="sticky top-0 z-50 w-full glass-card border-b py-4">
             <div className="container mx-auto px-6 flex items-center justify-between">
@@ -35,7 +35,13 @@ export default function Header({ account, onConnect }) {
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 w-4 h-4" />
                         <input
                             type="text"
-                            placeholder="Search address..."
+                            placeholder="Search address (0x...)"
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    onSearch?.(e.target.value);
+                                    e.target.value = '';
+                                }
+                            }}
                             className="bg-zinc-900/50 border border-white/10 rounded-full py-1.5 pl-10 pr-4 text-xs focus:outline-none focus:ring-1 focus:ring-primary/50 w-64 transition-all"
                         />
                     </div>

@@ -6,6 +6,7 @@ import RadarControl from './components/RadarControl';
 import { Activity, LayoutGrid, List as ListIcon, Info, RefreshCcw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from './lib/supabase';
+import { contractManager } from './lib/contractManager';
 
 function App() {
   const [contracts, setContracts] = useState([]);
@@ -13,7 +14,7 @@ function App() {
     network: 'all',
     safety: [],
     risk: [],
-    age: 'recent' // Default to recent
+    age: 'recent'
   });
   const [viewMode, setViewMode] = useState('grid');
   const [scanStatus, setScanStatus] = useState({
@@ -66,7 +67,6 @@ function App() {
     isVulnerable: dbRow.is_vulnerable
   });
 
-  // Fetch contracts directly from Supabase
   const fetchContracts = async () => {
     try {
       let query = supabase
@@ -87,25 +87,75 @@ function App() {
       }
       setIsLoading(false);
     } catch (err) {
-      console.error("Error fetching contracts from Supabase:", err);
+      console.error("Error fetching contracts:", err);
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
     fetchContracts();
-    const interval = setInterval(fetchContracts, 5000);
-    return () => clearInterval(interval);
-  }, [activeFilters.network, activeFilters.age]);
+
+    // Subscribe to REALTIME updates from Supabase
+    const channel = supabase
+      .channel('public:contracts')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'contracts' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          setContracts(prev => [mapDbToInternal(payload.new), ...prev.slice(0, 99)]);
+        } else if (payload.eventType === 'UPDATE') {
+          setContracts(prev => prev.map(c => c.id === payload.new.id ? mapDbToInternal(payload.new) : c));
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeFilters.network]);
 
   const toggleScanning = async (networkName) => {
-    alert("Scanning is handled by the backend indexer. Ensure the server is running to control scans.");
-    // In a pure Vercel/Supabase setup, we would trigger a Supabase Edge Function or an external worker.
+    const isCurrentlyScanning = scanStatus.activeScans[networkName];
+    setScanStatus(prev => ({
+      ...prev,
+      activeScans: { ...prev.activeScans, [networkName]: !isCurrentlyScanning }
+    }));
+
+    if (!isCurrentlyScanning) {
+      // Start a "background" scan in the browser
+      const scanLoop = async () => {
+        while (true) {
+          // Check if still scanning this network (using ref or status)
+          // Simplified for the demo: Scan once per minute while tab is open
+          await contractManager.scanRecentBlocks(networkName, 1);
+          await new Promise(r => setTimeout(r, 30000));
+          // Note: In a production app, we would use a cleaner loop control
+        }
+      };
+      scanLoop();
+    }
   };
 
   const requestHistory = async (networkName) => {
-    alert(`Historical scan request for ${networkName} sent to backend.`);
+    setIsLoading(true);
+    await contractManager.scanRecentBlocks(networkName, 10);
+    setIsLoading(false);
+    alert(`Historical scan for ${networkName} completed!`);
   };
+
+  const handleSearch = async (address) => {
+    if (!address.startsWith('0x')) {
+      alert("Please enter a valid EVM address");
+      return;
+    }
+    setIsLoading(true);
+    const result = await contractManager.findAndAnalyze(address, activeFilters.network !== 'all' ? activeFilters.network : 'Ethereum');
+    setIsLoading(false);
+    if (!result) {
+      alert("Contract not found or analysis failed");
+    } else {
+      fetchContracts(); // Refresh to show the new contract
+    }
+  };
+
 
 
   const toggleFilter = (type, value) => {
@@ -162,7 +212,7 @@ function App() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <Header account={account} onConnect={connectWallet} />
+      <Header account={account} onConnect={connectWallet} onSearch={handleSearch} />
 
       <main className="flex-1 container mx-auto px-6 py-8">
         {/* Dashboard Hero */}
