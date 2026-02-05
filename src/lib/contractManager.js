@@ -21,6 +21,9 @@ const SIGNATURES = {
     TRANSFER: 'a9059cbb',
     APPROVE: '095ea7b3',
     OWNER: '8da5cb5b',
+    TOTAL_SUPPLY: '18160ddd',
+    MINT: '40c10f19',
+    BURN: '4296696b'
 };
 
 export async function analyzeContract(address, deployer, provider, network) {
@@ -33,12 +36,15 @@ export async function analyzeContract(address, deployer, provider, network) {
         findings: [],
         type: "Unknown",
         features: [],
-        name: "Unknown Token",
+        name: "Unknown Contract",
         symbol: "???",
         timestamp: new Date().toISOString(),
         is_scam: false,
         is_vulnerable: false,
-        tag: "SAFE"
+        tag: "SAFE",
+        has_liquidity: false,
+        is_mintable: false,
+        is_burnable: false
     };
 
     try {
@@ -61,13 +67,13 @@ export async function analyzeContract(address, deployer, provider, network) {
                 description: "Contract uses a proxy pattern. Logic can be changed by owner at any time."
             });
             analysis.risk_score += 25;
-        } else {
-            analysis.type = "Standard Contract";
         }
 
         // 2. Token Detection
         const hasTransfer = bytecode.includes(SIGNATURES.TRANSFER);
-        if (hasTransfer) {
+        const hasTotalSupply = bytecode.includes('18160ddd');
+        if (hasTransfer && hasTotalSupply) {
+            analysis.type = "Token (ERC20)";
             analysis.features.push("ERC20 / Token");
             try {
                 const abi = [
@@ -87,6 +93,11 @@ export async function analyzeContract(address, deployer, provider, network) {
             analysis.features.push("Ownable");
         }
 
+        if (bytecode.includes('40c10f19')) {
+            analysis.is_mintable = true;
+            analysis.features.push("Mintable");
+        }
+
         // Honeypot Heuristic
         if (bytecode.includes('08c379a0') && bytecode.length < 5000) {
             analysis.findings.push({
@@ -95,6 +106,12 @@ export async function analyzeContract(address, deployer, provider, network) {
                 description: "Potential conditional transfer restriction detected in bytecode."
             });
             analysis.risk_score += 50;
+        }
+
+        // Liquidity Heuristic
+        if (bytecode.includes('0dfe165a') || bytecode.includes('bc25cf77')) {
+            analysis.has_liquidity = true;
+            analysis.features.push("LP Contract");
         }
 
         // 4. Deployer Reputation (Basic check for browser performance)
@@ -114,13 +131,14 @@ export async function analyzeContract(address, deployer, provider, network) {
         // 5. Final Scoring
         analysis.risk_score = Math.min(analysis.risk_score, 100);
 
-        if (analysis.risk_score >= 70) {
+        if (analysis.risk_score >= 75) {
             analysis.tag = "CRITICAL";
-            analysis.is_scam = analysis.risk_score > 85;
+            analysis.is_scam = true;
             analysis.is_vulnerable = true;
-        } else if (analysis.risk_score >= 40) {
+        } else if (analysis.risk_score >= 45) {
             analysis.tag = "HIGH";
             analysis.is_vulnerable = true;
+            analysis.is_scam = false;
         } else if (analysis.risk_score >= 20) {
             analysis.tag = "MEDIUM";
         } else {
@@ -133,6 +151,7 @@ export async function analyzeContract(address, deployer, provider, network) {
         return analysis;
     }
 }
+
 
 class ContractManager {
     constructor() {

@@ -66,7 +66,10 @@ export class ContractIndexer {
             findings: dbRow.findings,
             features: dbRow.features,
             isScam: dbRow.is_scam,
-            isVulnerable: dbRow.is_vulnerable
+            isVulnerable: dbRow.is_vulnerable,
+            hasLiquidity: dbRow.has_liquidity || false,
+            isMintable: dbRow.is_mintable || false,
+            isBurnable: dbRow.is_burnable || false
         };
     }
 
@@ -87,7 +90,10 @@ export class ContractIndexer {
             findings: contract.findings,
             features: contract.features,
             is_scam: contract.isScam || false,
-            is_vulnerable: contract.isVulnerable || false
+            is_vulnerable: contract.isVulnerable || false,
+            has_liquidity: contract.hasLiquidity || false,
+            is_mintable: contract.isMintable || false,
+            is_burnable: contract.isBurnable || false
         };
     }
 
@@ -120,21 +126,28 @@ export class ContractIndexer {
     }
 
     async scanBlock(network, blockNumber) {
+        if (blockNumber < 0) return;
         const provider = this.getProvider(network);
         if (!provider) return;
 
         try {
             console.log(`[${network}] Scanning block ${blockNumber}...`);
-            const block = await provider.send("eth_getBlockByNumber", [ethers.toBeHex(blockNumber), true]);
+            // Use a timeout for the RPC call to prevent hanging
+            const blockRequest = provider.send("eth_getBlockByNumber", [ethers.toBeHex(blockNumber), true]);
+            const block = await Promise.race([
+                blockRequest,
+                new Promise((_, reject) => setTimeout(() => reject(new Error("RPC Timeout")), 15000))
+            ]);
 
             if (!block || !block.transactions) return;
 
             for (const tx of block.transactions) {
+                // Check for contract creation (to is null or 0x0)
                 if (tx.to === null || tx.to === '0x0000000000000000000000000000000000000000') {
                     try {
                         const receipt = await provider.getTransactionReceipt(tx.hash);
                         if (receipt && receipt.contractAddress) {
-                            const analysis = await analyzeContract(receipt.contractAddress, tx.from, provider);
+                            const analysis = await analyzeContract(receipt.contractAddress, tx.from, provider, network);
 
                             const completeData = {
                                 id: `${network}-${receipt.contractAddress}`.toLowerCase(),
@@ -188,21 +201,32 @@ export class ContractIndexer {
         this.activeScans[network] = true;
         this.saveState();
 
-        provider.on('block', (blockNumber) => {
-            if (this.activeScans[network]) {
-                this.scanBlock(network, blockNumber);
+        // Use a interval-based polling if event-based is flaky on some networks
+        const scanLoop = async () => {
+            let lastBlock = await provider.getBlockNumber();
+            while (this.activeScans[network]) {
+                try {
+                    const currentBlock = await provider.getBlockNumber();
+                    if (currentBlock > lastBlock) {
+                        for (let b = lastBlock + 1; b <= currentBlock; b++) {
+                            await this.scanBlock(network, b);
+                        }
+                        lastBlock = currentBlock;
+                    }
+                } catch (e) {
+                    console.error(`[${network}] Polling error:`, e.message);
+                }
+                await new Promise(r => setTimeout(r, 12000)); // Poll every 12s (avg block time)
             }
-        });
+        };
+
+        scanLoop();
         console.log(`Radar started on ${network}`);
     }
 
     stopScanning(network) {
         this.activeScans[network] = false;
         this.saveState();
-        const provider = this.providers[network];
-        if (provider) {
-            provider.removeAllListeners('block');
-        }
         console.log(`Radar stopped on ${network}`);
     }
 
@@ -210,16 +234,21 @@ export class ContractIndexer {
         const provider = this.getProvider(network);
         if (!provider) return;
 
-        const currentBlock = await provider.getBlockNumber();
-        console.log(`Deep scanning ${network}...`);
+        try {
+            const currentBlock = await provider.getBlockNumber();
+            console.log(`Deep scanning ${network}... starting from ${currentBlock}`);
 
-        // Scan in chunks of 5 blocks in parallel to speed up
-        for (let i = 0; i < blocksBack; i += 5) {
-            const promises = [];
-            for (let j = 0; j < 5 && (i + j) < blocksBack; j++) {
-                promises.push(this.scanBlock(network, currentBlock - (i + j)));
+            // Scan in sequence to avoid overwhelming the RPC
+            for (let i = 0; i < blocksBack; i++) {
+                const targetBlock = currentBlock - i;
+                if (targetBlock < 0) break;
+                await this.scanBlock(network, targetBlock);
+                // Tiny delay to be nice to RPC
+                await new Promise(r => setTimeout(r, 100));
             }
-            await Promise.all(promises);
+            console.log(`Deep scan for ${network} finished.`);
+        } catch (err) {
+            console.error(`Historical scan error on ${network}:`, err.message);
         }
     }
 

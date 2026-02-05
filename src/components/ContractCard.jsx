@@ -77,8 +77,15 @@ export default function ContractCard({ contract }) {
                         <RefreshCw size={10} className="animate-spin-slow" />
                         {formatTime(contract.timestamp)}
                     </span>
-                    <div className={cn("badge text-[10px] font-bold uppercase py-0.5 px-2 rounded border", getStatusColor())}>
-                        {contract.tag} Risk ({contract.riskScore}/100)
+                    <div className="flex gap-1">
+                        {contract.hasLiquidity && (
+                            <div className="badge text-[10px] font-bold uppercase py-0.5 px-2 rounded border border-success/30 bg-success/10 text-success">
+                                <Zap size={8} className="inline mr-1" /> LIQUIDITY
+                            </div>
+                        )}
+                        <div className={cn("badge text-[10px] font-bold uppercase py-0.5 px-2 rounded border", getStatusColor())}>
+                            {contract.tag} Risk ({contract.riskScore}/100)
+                        </div>
                     </div>
                 </div>
             </div>

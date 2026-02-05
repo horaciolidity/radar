@@ -64,7 +64,10 @@ function App() {
     findings: dbRow.findings,
     features: dbRow.features,
     isScam: dbRow.is_scam,
-    isVulnerable: dbRow.is_vulnerable
+    isVulnerable: dbRow.is_vulnerable,
+    hasLiquidity: dbRow.has_liquidity || false,
+    isMintable: dbRow.is_mintable || false,
+    isBurnable: dbRow.is_burnable || false
   });
 
   const fetchContracts = async () => {
@@ -119,26 +122,44 @@ function App() {
       activeScans: { ...prev.activeScans, [networkName]: !isCurrentlyScanning }
     }));
 
-    if (!isCurrentlyScanning) {
-      // Start a "background" scan in the browser
-      const scanLoop = async () => {
-        while (true) {
-          // Check if still scanning this network (using ref or status)
-          // Simplified for the demo: Scan once per minute while tab is open
-          await contractManager.scanRecentBlocks(networkName, 1);
-          await new Promise(r => setTimeout(r, 30000));
-          // Note: In a production app, we would use a cleaner loop control
-        }
-      };
-      scanLoop();
+    try {
+      if (!isCurrentlyScanning) {
+        await fetch(`http://localhost:3001/api/scan/start`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ network: networkName })
+        });
+      } else {
+        await fetch(`http://localhost:3001/api/scan/stop`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ network: networkName })
+        });
+      }
+    } catch (e) {
+      console.error("Failed to communicate with backend:", e.message);
+      // Fallback to browser scan if backend is not available
+      if (!isCurrentlyScanning) {
+        contractManager.scanRecentBlocks(networkName, 1);
+      }
     }
   };
 
   const requestHistory = async (networkName) => {
     setIsLoading(true);
-    await contractManager.scanRecentBlocks(networkName, 10);
+    try {
+      await fetch(`http://localhost:3001/api/scan/history`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ network: networkName, blocks: 20 })
+      });
+      alert(`Historical scan for ${networkName} requested from server!`);
+    } catch (e) {
+      console.warn("Backend not available, performing browser-side scan...");
+      await contractManager.scanRecentBlocks(networkName, 10);
+      alert(`Historical scan for ${networkName} completed (browser-side)!`);
+    }
     setIsLoading(false);
-    alert(`Historical scan for ${networkName} completed!`);
   };
 
   const handleSearch = async (address) => {
@@ -156,24 +177,9 @@ function App() {
     }
   };
 
-
-
   const toggleFilter = (type, value) => {
     setActiveFilters(prev => {
       if (type === 'network' || type === 'age') {
-        // For exclusive filters like network and age, toggle between the value and 'all' (or 'recent' for age)
-        // If the current value is the same as the new value, reset it.
-        // For 'age', if value is 'recent' and it's already 'recent', reset to 'all' (or a default 'none' state if applicable).
-        // The instruction implies 'all' as a reset for both, which might be slightly ambiguous for 'age'.
-        // Assuming 'all' means no age filter applied, or a default state.
-        // Let's adjust based on the instruction's `prev[type] === value ? 'all' : value`
-        // For age, if 'recent' is clicked and it's already 'recent', it will become 'all'.
-        // If 'old' is clicked and it's already 'old', it will become 'all'.
-        // If 'all' is clicked, it will become 'all'.
-        // This might not be the desired behavior for age if 'all' is not a valid age filter.
-        // A more robust approach for age might be:
-        // return { ...prev, [type]: prev[type] === value ? (type === 'age' ? 'recent' : 'all') : value };
-        // However, sticking to the instruction:
         return { ...prev, [type]: prev[type] === value ? 'all' : value };
       }
 
@@ -198,7 +204,8 @@ function App() {
     if (activeFilters.age === 'recent' && ageInHours > 24) return false;
     if (activeFilters.age === 'old' && ageInDays < 365) return false;
 
-    // Safety filters mapping to backend data
+    // Safety filters
+    if (activeFilters.safety.includes('hasLiquidity') && !contract.hasLiquidity) return false;
     if (activeFilters.safety.includes('isSafe') && contract.tag !== 'SAFE') return false;
     if (activeFilters.safety.includes('noVulnerability') && contract.isVulnerable) return false;
     if (activeFilters.safety.includes('isNotScam') && contract.isScam) return false;
