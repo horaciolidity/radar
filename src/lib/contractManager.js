@@ -2,12 +2,12 @@ import { ethers } from 'ethers';
 import { supabase } from './supabase';
 
 const RPC_CONFIG = {
-    'Ethereum': [import.meta.env.VITE_RPC_ETHEREUM, 'https://eth.publicnode.com', 'https://cloudflare-eth.com', 'https://ethereum.publicnode.com'],
-    'BSC': [import.meta.env.VITE_RPC_BSC, 'https://bsc-dataseed.binance.org', 'https://bsc-dataseed1.defibit.io', 'https://bsc-dataseed1.ninicoin.io'],
-    'Polygon': [import.meta.env.VITE_RPC_POLYGON, 'https://polygon-rpc.com', 'https://rpc-mainnet.maticvigil.com'],
-    'Base': [import.meta.env.VITE_RPC_BASE, 'https://mainnet.base.org', 'https://developer-access-mainnet.base.org'],
-    'Arbitrum': [import.meta.env.VITE_RPC_ARBITRUM, 'https://arb1.arbitrum.io/rpc', 'https://arbitrum.publicnode.com'],
-    'Optimism': [import.meta.env.VITE_RPC_OPTIMISM, 'https://mainnet.optimism.io', 'https://optimism.publicnode.com']
+    'Ethereum': ['https://cloudflare-eth.com', 'https://eth.llamarpc.com', 'https://eth.publicnode.com'],
+    'BSC': ['https://binance.llamarpc.com', 'https://bsc-dataseed.binance.org', 'https://bsc-dataseed1.defibit.io'],
+    'Polygon': ['https://polygon.llamarpc.com', 'https://polygon-rpc.com', 'https://rpc-mainnet.maticvigil.com'],
+    'Base': ['https://mainnet.base.org', 'https://base.llamarpc.com'],
+    'Arbitrum': ['https://arb1.arbitrum.io/rpc', 'https://arbitrum.publicnode.com'],
+    'Optimism': ['https://mainnet.optimism.io', 'https://optimism.publicnode.com']
 };
 
 const NETWORK_IDS = {
@@ -19,10 +19,11 @@ const NETWORK_IDS = {
     'Optimism': 10
 };
 
-const getRpcUrl = (network) => {
-    const urls = RPC_CONFIG[network] || [];
-    const validUrls = urls.filter(url => url && url.startsWith('http'));
-    return validUrls[0] || null;
+const getRpcUrls = (network) => {
+    const customRpc = import.meta.env[`VITE_RPC_${network.toUpperCase()}`];
+    const defaultUrls = RPC_CONFIG[network] || [];
+    const all = customRpc ? [customRpc, ...defaultUrls] : defaultUrls;
+    return all.filter(url => url && url.startsWith('http'));
 };
 
 const SIGNATURES = {
@@ -198,6 +199,7 @@ class ContractManager {
     constructor() {
         this.providers = {};
         this.lastBlocks = {};
+        this.rpcIndex = {};
     }
 
     getStatus(network) {
@@ -208,14 +210,28 @@ class ContractManager {
     }
 
     getProvider(network) {
-        const url = getRpcUrl(network);
-        if (!url) return null;
         if (!this.providers[network]) {
-            // Use static network to avoid detectNetwork calls on start
+            const urls = getRpcUrls(network);
+            const index = this.rpcIndex[network] || 0;
+            const url = urls[index % urls.length];
+
+            if (!url) return null;
+
             const chainId = NETWORK_IDS[network];
             this.providers[network] = new ethers.JsonRpcProvider(url, chainId ? { chainId, name: network.toLowerCase() } : undefined, { staticNetwork: true });
+            console.log(`[Radar] Connected to ${network} via ${url}`);
         }
         return this.providers[network];
+    }
+
+    rotateProvider(network) {
+        const urls = getRpcUrls(network);
+        this.rpcIndex[network] = (this.rpcIndex[network] || 0) + 1;
+        const nextUrl = urls[this.rpcIndex[network] % urls.length];
+
+        console.warn(`[Radar] Rotating RPC for ${network} to: ${nextUrl}`);
+        this.providers[network] = null; // Force recreation on next getProvider call
+        return this.getProvider(network);
     }
 
     async scanRecentBlocks(network, countOrStartBlock = 5) {
@@ -285,7 +301,9 @@ class ContractManager {
             this.lastBlocks[network] = currentBlock;
         } catch (e) {
             console.error(`[${network}] Scan Failed:`, e.message);
-            // If it's a CORS/Fetch error, maybe rotate RPC? (advanced)
+            if (e.message.includes('fetch') || e.message.includes('CORS') || e.message.includes('403')) {
+                this.rotateProvider(network);
+            }
         }
     }
 
