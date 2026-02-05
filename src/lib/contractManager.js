@@ -2,12 +2,12 @@ import { ethers } from 'ethers';
 import { supabase } from './supabase';
 
 const RPC_CONFIG = {
-    'Ethereum': [import.meta.env.VITE_RPC_ETHEREUM, 'https://rpc.ankr.com/eth', 'https://eth.llamarpc.com', 'https://ethereum.publicnode.com'],
-    'BSC': [import.meta.env.VITE_RPC_BSC, 'https://bsc-dataseed.binance.org', 'https://binance.llamarpc.com'],
-    'Polygon': [import.meta.env.VITE_RPC_POLYGON, 'https://polygon-rpc.com', 'https://polygon.llamarpc.com'],
+    'Ethereum': [import.meta.env.VITE_RPC_ETHEREUM, 'https://eth.llamarpc.com', 'https://ethereum.publicnode.com', 'https://cloudflare-eth.com'],
+    'BSC': [import.meta.env.VITE_RPC_BSC, 'https://binance.llamarpc.com', 'https://bsc-dataseed.binance.org'],
+    'Polygon': [import.meta.env.VITE_RPC_POLYGON, 'https://polygon.llamarpc.com', 'https://polygon-rpc.com'],
     'Base': [import.meta.env.VITE_RPC_BASE, 'https://mainnet.base.org', 'https://base.llamarpc.com'],
-    'Arbitrum': [import.meta.env.VITE_RPC_ARBITRUM, 'https://arb1.arbitrum.io/rpc', 'https://arbitrum.llamarpc.com'],
-    'Optimism': [import.meta.env.VITE_RPC_OPTIMISM, 'https://mainnet.optimism.io', 'https://optimism.llamarpc.com']
+    'Arbitrum': [import.meta.env.VITE_RPC_ARBITRUM, 'https://arbitrum.llamarpc.com', 'https://arb1.arbitrum.io/rpc'],
+    'Optimism': [import.meta.env.VITE_RPC_OPTIMISM, 'https://optimism.llamarpc.com', 'https://mainnet.optimism.io']
 };
 
 const getRpcUrl = (network) => {
@@ -162,6 +162,13 @@ class ContractManager {
         this.lastBlocks = {};
     }
 
+    getStatus(network) {
+        return {
+            lastBlock: this.lastBlocks[network] || null,
+            isReady: !!this.providers[network]
+        };
+    }
+
     getProvider(network) {
         const url = getRpcUrl(network);
         if (!url) return null;
@@ -197,8 +204,8 @@ class ContractManager {
             console.log(`[${network}] Scanning from block ${startBlock} to ${currentBlock}...`);
 
             for (let b = startBlock; b <= currentBlock; b++) {
-                // Get block with full transactions
-                const block = await provider.send("eth_getBlockByNumber", [ethers.toBeHex(b), true]);
+                // Get block with full transactions. Use toQuantity to avoid leading zeros in hex
+                const block = await provider.send("eth_getBlockByNumber", [ethers.toQuantity(b), true]);
 
                 if (!block) {
                     throw new Error(`Block ${b} not found (RPC failure)`);
@@ -207,8 +214,8 @@ class ContractManager {
                 if (!block.transactions || !Array.isArray(block.transactions)) continue;
 
                 for (const tx of block.transactions) {
-                    // Identify contract creation with tx.to === null
-                    if (tx.to === null) {
+                    // Identify contract creation with tx.to === null or the zero address
+                    if (tx.to === null || tx.to === '0x0000000000000000000000000000000000000000') {
                         try {
                             const receipt = await provider.getTransactionReceipt(tx.hash);
                             if (receipt && receipt.contractAddress) {

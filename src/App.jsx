@@ -115,29 +115,48 @@ function App() {
     };
   }, [activeFilters.network]);
 
-  // Client-side scanning loops
+  // Client-side scanning loops management
+  const intervalsRef = React.useRef({});
+
   useEffect(() => {
-    const intervals = {};
+    const activeNetworks = Object.keys(scanStatus.activeScans).filter(nw => scanStatus.activeScans[nw]);
 
-    // Start intervals for each active scan
-    Object.keys(scanStatus.activeScans).forEach(network => {
-      if (scanStatus.activeScans[network]) {
+    // Stop intervals for networks that are no longer active
+    Object.keys(intervalsRef.current).forEach(network => {
+      if (!scanStatus.activeScans[network]) {
+        clearInterval(intervalsRef.current[network]);
+        delete intervalsRef.current[network];
+        console.log(`[Radar] Stopped loop for ${network}`);
+      }
+    });
+
+    // Start intervals for newly active networks
+    activeNetworks.forEach(network => {
+      if (!intervalsRef.current[network]) {
         console.log(`[Radar] Starting client-side loop for ${network}`);
-        // Initial scan
-        contractManager.scanRecentBlocks(network, 2);
 
-        // Setup interval (every 20 seconds)
-        intervals[network] = setInterval(() => {
+        // Initial scan (only 1 block to check immediately)
+        contractManager.scanRecentBlocks(network, 1);
+
+        // Setup interval (every 15 seconds)
+        intervalsRef.current[network] = setInterval(() => {
           contractManager.scanRecentBlocks(network);
-        }, 20000);
+        }, 15000);
       }
     });
 
     return () => {
-      // Cleanup all intervals on unmount or status change
-      Object.values(intervals).forEach(clearInterval);
+      // We don't clear everything on every change, only on unmount
     };
   }, [scanStatus.activeScans]);
+
+  // Handle unmount
+  useEffect(() => {
+    return () => {
+      Object.values(intervalsRef.current).forEach(clearInterval);
+      intervalsRef.current = {};
+    };
+  }, []);
 
   const toggleScanning = (networkName) => {
     setScanStatus(prev => ({

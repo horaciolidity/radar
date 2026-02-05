@@ -10,12 +10,12 @@ if (!fs.existsSync(DB_PATH)) fs.mkdirSync(DB_PATH);
 const STATE_FILE = path.join(DB_PATH, 'state.json');
 
 const RPC_CONFIG = {
-    'Ethereum': [process.env.RPC_ETHEREUM, 'https://rpc.ankr.com/eth', 'https://eth.llamarpc.com', 'https://ethereum.publicnode.com'],
-    'BSC': [process.env.RPC_BSC, 'https://bsc-dataseed.binance.org', 'https://binance.llamarpc.com'],
-    'Polygon': [process.env.RPC_POLYGON, 'https://polygon-rpc.com', 'https://polygon.llamarpc.com'],
+    'Ethereum': [process.env.RPC_ETHEREUM, 'https://eth.llamarpc.com', 'https://ethereum.publicnode.com', 'https://cloudflare-eth.com'],
+    'BSC': [process.env.RPC_BSC, 'https://binance.llamarpc.com', 'https://bsc-dataseed.binance.org'],
+    'Polygon': [process.env.RPC_POLYGON, 'https://polygon.llamarpc.com', 'https://polygon-rpc.com'],
     'Base': [process.env.RPC_BASE, 'https://mainnet.base.org', 'https://base.llamarpc.com'],
-    'Arbitrum': [process.env.RPC_ARBITRUM, 'https://arb1.arbitrum.io/rpc', 'https://arbitrum.llamarpc.com'],
-    'Optimism': [process.env.RPC_OPTIMISM, 'https://mainnet.optimism.io', 'https://optimism.llamarpc.com']
+    'Arbitrum': [process.env.RPC_ARBITRUM, 'https://arbitrum.llamarpc.com', 'https://arb1.arbitrum.io/rpc'],
+    'Optimism': [process.env.RPC_OPTIMISM, 'https://optimism.llamarpc.com', 'https://mainnet.optimism.io']
 };
 
 const getRpcUrl = (network) => {
@@ -134,7 +134,7 @@ export class ContractIndexer {
 
         console.log(`[${network}] Scanning block ${blockNumber}...`);
 
-        const block = await provider.send("eth_getBlockByNumber", [ethers.toBeHex(blockNumber), true]);
+        const block = await provider.send("eth_getBlockByNumber", [ethers.toQuantity(blockNumber), true]);
 
         if (!block) {
             throw new Error(`Block ${blockNumber} not found (RPC failure)`);
@@ -143,8 +143,8 @@ export class ContractIndexer {
         if (!block.transactions) return;
 
         for (const tx of block.transactions) {
-            // Check for contract creation with tx.to === null
-            if (tx.to === null) {
+            // Check for contract creation with tx.to === null or the zero address
+            if (tx.to === null || tx.to === '0x0000000000000000000000000000000000000000') {
                 try {
                     const receipt = await provider.getTransactionReceipt(tx.hash);
                     if (receipt && receipt.contractAddress) {
