@@ -24,6 +24,30 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [account, setAccount] = useState(null);
   const [foundThisSession, setFoundThisSession] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
+
+  const mapDbToInternal = (dbRow) => ({
+    id: dbRow.id,
+    network: dbRow.network,
+    address: dbRow.address,
+    deployer: dbRow.deployer,
+    blockNumber: dbRow.block_number,
+    txHash: dbRow.tx_hash,
+    timestamp: dbRow.timestamp,
+    tag: dbRow.tag,
+    riskScore: dbRow.risk_score,
+    type: dbRow.type,
+    name: dbRow.name,
+    symbol: dbRow.symbol,
+    findings: dbRow.findings,
+    features: dbRow.features,
+    isScam: dbRow.is_scam,
+    isVulnerable: dbRow.is_vulnerable,
+    hasLiquidity: dbRow.has_liquidity || false,
+    isMintable: dbRow.is_mintable || false,
+    isBurnable: dbRow.is_burnable || false
+  });
 
   const connectWallet = async () => {
     if (window.ethereum) {
@@ -49,35 +73,17 @@ function App() {
     }
   };
 
-  const mapDbToInternal = (dbRow) => ({
-    id: dbRow.id,
-    network: dbRow.network,
-    address: dbRow.address,
-    deployer: dbRow.deployer,
-    blockNumber: dbRow.block_number,
-    txHash: dbRow.tx_hash,
-    timestamp: dbRow.timestamp,
-    tag: dbRow.tag,
-    riskScore: dbRow.risk_score,
-    type: dbRow.type,
-    name: dbRow.name,
-    symbol: dbRow.symbol,
-    findings: dbRow.findings,
-    features: dbRow.features,
-    isScam: dbRow.is_scam,
-    isVulnerable: dbRow.is_vulnerable,
-    hasLiquidity: dbRow.has_liquidity || false,
-    isMintable: dbRow.is_mintable || false,
-    isBurnable: dbRow.is_burnable || false
-  });
-
-  const fetchContracts = async () => {
+  const fetchContracts = async (append = false) => {
     try {
+      if (!append) setIsLoading(true);
+      const LIMIT = 100;
+      const offset = append ? contracts.length : 0;
+
       let query = supabase
         .from('contracts')
         .select('*')
         .order('timestamp', { ascending: false })
-        .limit(100);
+        .range(offset, offset + LIMIT - 1);
 
       if (activeFilters.network !== 'all') {
         query = query.eq('network', activeFilters.network);
@@ -87,13 +93,27 @@ function App() {
       if (error) throw error;
 
       if (data) {
-        setContracts(data.map(mapDbToInternal));
+        const newContracts = data.map(mapDbToInternal);
+        if (append) {
+          setContracts(prev => [...prev, ...newContracts]);
+        } else {
+          setContracts(newContracts);
+        }
+        setHasMore(data.length === LIMIT);
       }
       setIsLoading(false);
+      setIsFetchingMore(false);
     } catch (err) {
       console.error("Error fetching contracts:", err);
       setIsLoading(false);
+      setIsFetchingMore(false);
     }
+  };
+
+  const loadMore = () => {
+    if (isFetchingMore || !hasMore) return;
+    setIsFetchingMore(true);
+    fetchContracts(true);
   };
 
   useEffect(() => {
@@ -104,7 +124,11 @@ function App() {
       .channel('public:contracts')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'contracts' }, (payload) => {
         if (payload.eventType === 'INSERT') {
-          setContracts(prev => [mapDbToInternal(payload.new), ...prev.slice(0, 99)]);
+          setContracts(prev => {
+            const newList = [mapDbToInternal(payload.new), ...prev];
+            // Prune to maintain performance if we haven't loaded more
+            return prev.length <= 100 ? newList.slice(0, 100) : newList;
+          });
           setFoundThisSession(prev => prev + 1);
         } else if (payload.eventType === 'UPDATE') {
           setContracts(prev => prev.map(c => c.id === payload.new.id ? mapDbToInternal(payload.new) : c));
@@ -146,10 +170,6 @@ function App() {
         }, 15000);
       }
     });
-
-    return () => {
-      // Cleanup is handled by tracking activeScans
-    };
   }, [scanStatus.activeScans]);
 
   // Handle unmount
@@ -171,11 +191,9 @@ function App() {
   };
 
   const requestHistory = async (networkName) => {
-    setIsLoading(true);
     console.log(`[Radar] Running historical scan for ${networkName} (browser-side)...`);
     await contractManager.scanRecentBlocks(networkName, 10);
     alert(`Historical scan for ${networkName} completed! New contracts saved to Supabase.`);
-    setIsLoading(false);
   };
 
   const handleSearch = async (address) => {
@@ -183,9 +201,7 @@ function App() {
       alert("Please enter a valid EVM address");
       return;
     }
-    setIsLoading(true);
     const result = await contractManager.findAndAnalyze(address, activeFilters.network !== 'all' ? activeFilters.network : 'Ethereum');
-    setIsLoading(false);
     if (!result) {
       alert("Contract not found or analysis failed");
     } else {
@@ -333,6 +349,25 @@ function App() {
               <h3 className="text-xl font-bold text-white">No contracts found</h3>
               <p className="text-zinc-500">Try adjusting your filters or starting a radar scan above</p>
             </div>
+          </div>
+        )}
+
+        {/* Pagination */}
+        {contracts.length > 0 && hasMore && (
+          <div className="mt-12 flex justify-center">
+            <button
+              onClick={loadMore}
+              disabled={isFetchingMore}
+              className="group relative px-8 py-3 bg-surface border border-white/10 rounded-xl font-bold text-sm text-zinc-400 hover:text-white hover:border-primary/50 transition-all flex items-center gap-3 overflow-hidden shadow-lg hover:shadow-primary/10"
+            >
+              <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+              {isFetchingMore ? (
+                <RefreshCcw size={16} className="animate-spin text-primary" />
+              ) : (
+                <Activity size={16} className="group-hover:text-primary transition-colors" />
+              )}
+              {isFetchingMore ? 'Fetching more signals...' : 'Load 100 older contracts'}
+            </button>
           </div>
         )}
       </main>
