@@ -244,18 +244,29 @@ class ContractManager {
                 const block = await provider.send("eth_getBlockByNumber", [ethers.toQuantity(b), true]);
 
                 if (!block) throw new Error(`Empty block ${b}`);
+                console.log("[Radar] Scanning block", b);
 
                 if (!block.transactions || !Array.isArray(block.transactions)) continue;
 
                 for (const tx of block.transactions) {
+                    console.log("[Radar] TX", tx.hash, "to:", tx.to);
+
                     if (tx.to === null || tx.to === '0x0000000000000000000000000000000000000000') {
+                        console.warn("[Radar] Possible contract creation", tx.hash);
                         try {
                             const receipt = await provider.getTransactionReceipt(tx.hash);
+                            console.log("[Radar] Receipt", {
+                                tx: tx.hash,
+                                contract: receipt?.contractAddress
+                            });
+
                             if (receipt && receipt.contractAddress) {
-                                console.group(`[Radar] New Contract on ${network}`);
-                                console.log("Address:", receipt.contractAddress);
-                                console.log("Hash:", tx.hash);
-                                console.groupEnd();
+                                console.log("[Radar] CONTRACT DETECTED", {
+                                    address: receipt.contractAddress,
+                                    creator: tx.from,
+                                    block: b,
+                                    tx: tx.hash
+                                });
 
                                 const analysis = await analyzeContract(receipt.contractAddress, tx.from, provider, network);
                                 analysis.block_number = b;
