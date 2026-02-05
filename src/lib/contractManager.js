@@ -2,7 +2,7 @@ import { ethers } from 'ethers';
 import { supabase } from './supabase';
 
 const RPC_CONFIG = {
-    'Ethereum': ['https://cloudflare-eth.com', 'https://eth.llamarpc.com', 'https://eth.publicnode.com'],
+    'Ethereum': ['https://eth.llamarpc.com', 'https://cloudflare-eth.com', 'https://eth.publicnode.com'],
     'BSC': ['https://binance.llamarpc.com', 'https://bsc-dataseed.binance.org', 'https://bsc-dataseed1.defibit.io'],
     'Polygon': ['https://polygon.llamarpc.com', 'https://polygon-rpc.com', 'https://rpc-mainnet.maticvigil.com'],
     'Base': ['https://mainnet.base.org', 'https://base.llamarpc.com'],
@@ -301,9 +301,8 @@ class ContractManager {
             this.lastBlocks[network] = currentBlock;
         } catch (e) {
             console.error(`[${network}] Scan Failed:`, e.message);
-            if (e.message.includes('fetch') || e.message.includes('CORS') || e.message.includes('403')) {
-                this.rotateProvider(network);
-            }
+            // Rotate on any network/RPC error (coalesce, fetch, CORS, rate limits)
+            this.rotateProvider(network);
         }
     }
 
