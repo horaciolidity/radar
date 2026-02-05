@@ -14,6 +14,7 @@ export default function WalletRadar() {
     const [wallets, setWallets] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [activeNetwork, setActiveNetwork] = useState('all');
+    const [filterType, setFilterType] = useState('all'); // 'all' or 'multisig'
     const [viewMode, setViewMode] = useState('grid');
     const [isScanning, setIsScanning] = useState(false);
     const [foundCount, setFoundCount] = useState(0);
@@ -32,6 +33,10 @@ export default function WalletRadar() {
                 query = query.eq('network', activeNetwork);
             }
 
+            if (filterType === 'multisig') {
+                query = query.eq('is_multisig', true);
+            }
+
             const { data, error } = await query;
             if (error) throw error;
             setWallets(data || []);
@@ -48,6 +53,7 @@ export default function WalletRadar() {
         const channel = supabase
             .channel('public:wallets')
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'wallets' }, (payload) => {
+                if (filterType === 'multisig' && !payload.new.is_multisig) return;
                 setWallets(prev => [payload.new, ...prev].sort((a, b) => b.balance_usd - a.balance_usd).slice(0, 50));
                 setFoundCount(c => c + 1);
             })
@@ -56,7 +62,7 @@ export default function WalletRadar() {
         return () => {
             supabase.removeChannel(channel);
         };
-    }, [activeNetwork]);
+    }, [activeNetwork, filterType]);
 
     const toggleGlobalScan = () => {
         const newState = !isScanning;
@@ -87,6 +93,7 @@ export default function WalletRadar() {
 
     const filteredWallets = wallets.filter(w => {
         if (activeNetwork !== 'all' && w.network !== activeNetwork) return false;
+        if (filterType === 'multisig' && !w.is_multisig) return false;
         return true;
     });
 
@@ -153,6 +160,19 @@ export default function WalletRadar() {
                             {net}
                         </button>
                     ))}
+                    <div className="w-px h-10 bg-white/5 mx-2 hidden md:block" />
+                    <button
+                        onClick={() => setFilterType(filterType === 'all' ? 'multisig' : 'all')}
+                        className={cn(
+                            "px-5 py-2.5 rounded-xl text-xs font-black transition-all border uppercase italic tracking-widest flex items-center gap-2",
+                            filterType === 'multisig'
+                                ? "bg-primary text-black border-primary shadow-lg"
+                                : "bg-zinc-900/50 text-zinc-500 border-white/5 hover:border-white/20"
+                        )}
+                    >
+                        <Shield size={14} />
+                        Multi-sig Only
+                    </button>
                 </div>
 
                 <div className="flex bg-zinc-900/50 border border-white/5 rounded-xl p-1">

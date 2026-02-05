@@ -162,7 +162,7 @@ class WalletManager {
 
                 // Check balances for seen addresses
                 // Limit to 10 addresses per block to avoid rate limits
-                const addressesToCheck = Array.from(seenAddresses).slice(0, 10);
+                const addressesToCheck = Array.from(seenAddresses).slice(0, 5);
 
                 for (const address of addressesToCheck) {
                     if (!address) continue;
@@ -173,11 +173,16 @@ class WalletManager {
                         const balanceUsd = balanceEth * nativePrice;
 
                         if (balanceUsd >= 1000) {
+                            const isMultisig = await this.checkIsMultisig(address, provider);
+                            const tokens = await this.fetchTokens(address, provider, network);
+
                             await this.saveWallet({
                                 address,
                                 network,
                                 balance_eth: balanceEth,
                                 balance_usd: balanceUsd,
+                                is_multisig: isMultisig,
+                                tokens: tokens,
                                 last_seen: new Date(parseInt(block.timestamp, 16) * 1000).toISOString(),
                                 tx_hash: block.transactions[0]?.hash
                             });
@@ -201,6 +206,72 @@ class WalletManager {
         } finally {
             this.isScanning[network] = false;
         }
+    }
+
+    async checkIsMultisig(address, provider) {
+        try {
+            const code = await provider.getCode(address);
+            if (code === '0x' || code === '0x0') return false;
+
+            // Common Multi-sig patterns (Gnosis Safe, etc)
+            // 1. Gnosis Safe check (getOwners, getThreshold)
+            const safeInterface = new ethers.Interface([
+                'function getOwners() view returns (address[])',
+                'function getThreshold() view returns (uint256)'
+            ]);
+
+            try {
+                const ownersData = await provider.call({
+                    to: address,
+                    data: safeInterface.encodeFunctionData('getOwners')
+                });
+                if (ownersData !== '0x') return true;
+            } catch (e) { }
+
+            return false;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    async fetchTokens(address, provider, network) {
+        // Only checking top stablecoins to keep it fast
+        const COMMON_TOKENS = {
+            'Ethereum': [
+                { symbol: 'USDT', address: '0xdac17f958d2ee523a2206206994597c13d831ec7', decimals: 6 },
+                { symbol: 'USDC', address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', decimals: 6 },
+            ],
+            'BSC': [
+                { symbol: 'USDT', address: '0x55d398326f99059ff775485246999027b3197955', decimals: 18 },
+                { symbol: 'USDC', address: '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d', decimals: 18 },
+            ],
+            'Polygon': [
+                { symbol: 'USDT', address: '0xc2132d05d31c914a87c6611c10748aeb04b58e8f', decimals: 6 },
+                { symbol: 'USDC', address: '0x2791bca1f2de4661ed88a30c99a7a9449aa84174', decimals: 6 },
+            ]
+        };
+
+        const tokens = COMMON_TOKENS[network] || [];
+        const foundTokens = [];
+
+        for (const token of tokens) {
+            try {
+                const iface = new ethers.Interface(['function balanceOf(address) view returns (uint256)']);
+                const data = await provider.call({
+                    to: token.address,
+                    data: iface.encodeFunctionData('balanceOf', [address])
+                });
+                const balance = BigInt(data);
+
+                if (balance > 0n) {
+                    foundTokens.push({
+                        symbol: token.symbol,
+                        amount: ethers.formatUnits(balance, token.decimals)
+                    });
+                }
+            } catch (e) { }
+        }
+        return foundTokens;
     }
 
     async saveWallet(wallet) {

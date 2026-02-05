@@ -69,7 +69,12 @@ export default function WalletCard({ wallet }) {
                             <h3 className="font-black text-lg text-white tracking-tight">
                                 {wallet.address.slice(0, 6)}...{wallet.address.slice(-4)}
                             </h3>
-                            {isWhale && (
+                            {wallet.is_multisig && (
+                                <div className="flex items-center gap-1 bg-success/20 text-success text-[8px] font-black uppercase px-2 py-0.5 rounded-full border border-success/30">
+                                    <ShieldCheck size={8} /> Multi-sig
+                                </div>
+                            )}
+                            {isWhale && !wallet.is_multisig && (
                                 <div className="flex items-center gap-1 bg-primary/20 text-primary text-[8px] font-black uppercase px-2 py-0.5 rounded-full border border-primary/30">
                                     <Zap size={8} /> Whale
                                 </div>
@@ -93,6 +98,24 @@ export default function WalletCard({ wallet }) {
                 </div>
             </div>
 
+            {/* Tokens Section */}
+            {wallet.tokens && wallet.tokens.length > 0 && (
+                <div className="mb-6 relative z-10">
+                    <div className="text-[9px] uppercase font-black tracking-widest text-zinc-500 mb-2 flex items-center gap-2">
+                        <DollarSign size={10} /> Asset Holdings
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                        {wallet.tokens.map((token, idx) => (
+                            <div key={idx} className="bg-white/5 border border-white/5 rounded-xl px-3 py-1.5 flex items-center gap-2 transition-all hover:scale-105 hover:bg-white/10 hover:border-white/20 shadow-sm">
+                                <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                                <span className="text-xs font-black text-white">{token.symbol}</span>
+                                <span className="text-[10px] font-mono text-zinc-400">{parseFloat(token.amount).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             {/* Stats / Details */}
             <div className="grid grid-cols-2 gap-4 mb-6 relative z-10">
                 <div className="bg-black/40 rounded-2xl p-4 border border-white/5 transition-colors group-hover/wallet:border-white/10">
@@ -111,9 +134,9 @@ export default function WalletCard({ wallet }) {
                     </div>
                     <div className={cn(
                         "text-sm font-bold uppercase italic",
-                        isWhale ? "text-primary" : "text-success"
+                        wallet.is_multisig ? "text-success" : (isWhale ? "text-primary" : "text-success")
                     )}>
-                        High Value
+                        {wallet.is_multisig ? "Multi-sig Safe" : (isWhale ? "High Value Whale" : "Active Wallet")}
                     </div>
                 </div>
             </div>
