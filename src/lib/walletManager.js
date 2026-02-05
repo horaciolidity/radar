@@ -2,11 +2,11 @@ import { ethers } from 'ethers';
 import { supabase } from './supabase';
 
 const RPC_CONFIG = {
-    'Ethereum': ['https://eth.llamarpc.com', 'https://cloudflare-eth.com', 'https://ethereum.publicnode.com', 'https://eth.drpc.org'],
-    'BSC': ['https://bsc-dataseed.binance.org', 'https://rpc.ankr.com/bsc', 'https://binance.llamarpc.com'],
-    'Polygon': ['https://polygon-rpc.com', 'https://rpc.ankr.com/polygon', 'https://polygon.llamarpc.com', 'https://polygon.publicnode.com'],
+    'Ethereum': ['https://cloudflare-eth.com', 'https://ethereum.publicnode.com', 'https://eth.llamarpc.com', 'https://eth.drpc.org'],
+    'BSC': ['https://binance.llamarpc.com', 'https://bsc-dataseed.binance.org', 'https://rpc.ankr.com/bsc'],
+    'Polygon': ['https://polygon.llamarpc.com', 'https://polygon-rpc.com', 'https://polygon.publicnode.com', 'https://rpc.ankr.com/polygon'],
     'Base': ['https://mainnet.base.org', 'https://base.publicnode.com', 'https://base.llamarpc.com'],
-    'Arbitrum': ['https://arb1.arbitrum.io/rpc', 'https://arbitrum.publicnode.com', 'https://arbitrum.llamarpc.com'],
+    'Arbitrum': ['https://arbitrum.llamarpc.com', 'https://arb1.arbitrum.io/rpc', 'https://arbitrum.publicnode.com'],
     'Optimism': ['https://mainnet.optimism.io', 'https://optimism.publicnode.com', 'https://optimism.llamarpc.com']
 };
 
