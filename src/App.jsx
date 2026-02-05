@@ -7,8 +7,9 @@ import { Activity, LayoutGrid, List as ListIcon, Info, RefreshCcw } from 'lucide
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from './lib/supabase';
 import { contractManager } from './lib/contractManager';
-import WalletRadar from './components/WalletRadar';
 import { cn } from './lib/utils';
+import WalletRadar from './components/WalletRadar';
+import AuditPage from './components/AuditPage';
 
 function App() {
   const [contracts, setContracts] = useState([]);
@@ -28,7 +29,8 @@ function App() {
   const [foundThisSession, setFoundThisSession] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
-  const [activeTab, setActiveTab] = useState('contracts'); // 'contracts' | 'wallets'
+  const [activeTab, setActiveTab] = useState('contracts'); // 'contracts' | 'wallets' | 'auditor'
+
 
   const mapDbToInternal = (dbRow) => ({
     id: dbRow.id,
@@ -282,6 +284,17 @@ function App() {
             >
               Wallet Finder
             </button>
+            <button
+              onClick={() => setActiveTab('auditor')}
+              className={cn(
+                "px-8 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all italic",
+                activeTab === 'auditor'
+                  ? "bg-primary text-black shadow-lg shadow-primary/20"
+                  : "text-zinc-500 hover:text-zinc-300"
+              )}
+            >
+              Auditor Visual
+            </button>
           </div>
         </div>
 
@@ -404,8 +417,10 @@ function App() {
               </div>
             )}
           </div>
-        ) : (
+        ) : activeTab === 'wallets' ? (
           <WalletRadar />
+        ) : (
+          <AuditPage />
         )}
       </main>
 
