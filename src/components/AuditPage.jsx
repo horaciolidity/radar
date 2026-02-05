@@ -6,6 +6,7 @@ import CodeViewer from './CodeViewer';
 import VulnerabilityPanel from './VulnerabilityPanel';
 import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
+import { auditService } from '../lib/auditService';
 
 const AuditPage = () => {
     const [inputMode, setInputMode] = useState('address'); // 'address' | 'manual'
@@ -52,14 +53,13 @@ const AuditPage = () => {
 
             addStep("Fetching source code and metadata...");
             // Simulate/Trigger API
-            const response = await fetch('/api/audit-contract', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    address: inputMode === 'address' ? address : null,
-                    network: inputMode === 'address' ? network : null,
-                    code: inputMode === 'manual' ? manualCode : null
-                })
+            addStep("Fetching source code and metadata...");
+
+            // Use client-side service instead of API route to support local dev and "Allow public insert" policy
+            const data = await auditService.performAudit({
+                address: inputMode === 'address' ? address : null,
+                network: inputMode === 'address' ? network : null,
+                code: inputMode === 'manual' ? manualCode : null
             });
 
             updateLastStep('done');
@@ -73,7 +73,7 @@ const AuditPage = () => {
             await new Promise(r => setTimeout(r, 2000));
             updateLastStep('done');
 
-            const data = await response.json();
+            // data is already returned from auditService
 
             if (data.success) {
                 setAuditResult(data.audit);
