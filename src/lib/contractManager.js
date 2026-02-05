@@ -2,12 +2,12 @@ import { ethers } from 'ethers';
 import { supabase } from './supabase';
 
 const RPC_CONFIG = {
-    'Ethereum': ['https://rpc.ankr.com/eth', 'https://cloudflare-eth.com', 'https://eth.drpc.org'],
+    'Ethereum': ['https://eth.llamarpc.com', 'https://cloudflare-eth.com', 'https://ethereum.publicnode.com', 'https://eth.drpc.org'],
     'BSC': ['https://bsc-dataseed.binance.org', 'https://rpc.ankr.com/bsc', 'https://binance.llamarpc.com'],
-    'Polygon': ['https://polygon-rpc.com', 'https://rpc.ankr.com/polygon', 'https://polygon.llamarpc.com'],
-    'Base': ['https://mainnet.base.org', 'https://base.publicnode.com'],
-    'Arbitrum': ['https://arb1.arbitrum.io/rpc', 'https://arbitrum.publicnode.com'],
-    'Optimism': ['https://mainnet.optimism.io', 'https://optimism.publicnode.com']
+    'Polygon': ['https://polygon-rpc.com', 'https://rpc.ankr.com/polygon', 'https://polygon.llamarpc.com', 'https://polygon.publicnode.com'],
+    'Base': ['https://mainnet.base.org', 'https://base.publicnode.com', 'https://base.llamarpc.com'],
+    'Arbitrum': ['https://arb1.arbitrum.io/rpc', 'https://arbitrum.publicnode.com', 'https://arbitrum.llamarpc.com'],
+    'Optimism': ['https://mainnet.optimism.io', 'https://optimism.publicnode.com', 'https://optimism.llamarpc.com']
 };
 
 const NETWORK_IDS = {
@@ -63,7 +63,7 @@ export async function analyzeContract(address, deployer, provider, network) {
     try {
         const bytecode = await provider.getCode(address);
 
-        if (bytecode === '0x') {
+        if (bytecode === '0x' || !bytecode || bytecode === '0x0') {
             analysis.type = "Destructed / EOA";
             analysis.risk_score = 10;
             return analysis;
@@ -94,8 +94,17 @@ export async function analyzeContract(address, deployer, provider, network) {
                     "function symbol() view returns (string)"
                 ];
                 const contract = new ethers.Contract(address, abi, provider);
-                analysis.name = await contract.name();
-                analysis.symbol = await contract.symbol();
+                // Use a short timeout for metadata to avoid hanging
+                const namePromise = contract.name();
+                const symbolPromise = contract.symbol();
+
+                const [name, symbol] = await Promise.all([
+                    Promise.race([namePromise, new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 5000))]),
+                    Promise.race([symbolPromise, new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 5000))])
+                ]).catch(() => ["Unknown Token", "???"]);
+
+                analysis.name = name;
+                analysis.symbol = symbol;
             } catch (e) {
                 console.warn(`[Radar] Non-standard token or metadata missing for ${address}`);
             }
@@ -198,14 +207,33 @@ export async function analyzeContract(address, deployer, provider, network) {
 class ContractManager {
     constructor() {
         this.providers = {};
-        this.lastBlocks = {};
+        this.lastBlocks = this.loadPersistedBlocks();
         this.rpcIndex = {};
+        this.isScanning = {};
+    }
+
+    loadPersistedBlocks() {
+        try {
+            const saved = localStorage.getItem('radar_last_blocks');
+            return saved ? JSON.parse(saved) : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    persistBlocks() {
+        try {
+            localStorage.setItem('radar_last_blocks', JSON.stringify(this.lastBlocks));
+        } catch (e) {
+            console.warn("[Radar] Failed to persist blocks", e);
+        }
     }
 
     getStatus(network) {
         return {
             lastBlock: this.lastBlocks[network] || null,
-            isReady: !!this.providers[network]
+            isReady: !!this.providers[network],
+            isScanning: !!this.isScanning[network]
         };
     }
 
@@ -235,8 +263,14 @@ class ContractManager {
     }
 
     async scanRecentBlocks(network, countOrStartBlock = 5) {
+        if (this.isScanning[network]) return;
+        this.isScanning[network] = true;
+
         const provider = this.getProvider(network);
-        if (!provider) return;
+        if (!provider) {
+            this.isScanning[network] = false;
+            return;
+        }
 
         try {
             const currentBlock = await provider.getBlockNumber();
@@ -252,7 +286,10 @@ class ContractManager {
                 startBlock = this.lastBlocks[network] + 1;
             }
 
-            if (startBlock > currentBlock) return;
+            if (startBlock > currentBlock) {
+                this.isScanning[network] = false;
+                return;
+            }
 
             console.log(`[${network}] Height: ${startBlock} -> ${currentBlock}`);
 
@@ -260,24 +297,18 @@ class ContractManager {
                 const block = await provider.send("eth_getBlockByNumber", [ethers.toQuantity(b), true]);
 
                 if (!block) throw new Error(`Empty block ${b}`);
-                console.log("[Radar] Scanning block", b);
+                console.log(`[Radar] Scanning ${network} block ${b}`);
 
                 if (!block.transactions || !Array.isArray(block.transactions)) continue;
 
                 for (const tx of block.transactions) {
-                    console.log("[Radar] TX", tx.hash, "to:", tx.to);
-
-                    if (tx.to === null || tx.to === '0x0000000000000000000000000000000000000000') {
-                        console.warn("[Radar] Possible contract creation", tx.hash);
+                    // Check for contract creation
+                    if (tx.to === null || tx.to === '0x0000000000000000000000000000000000000000' || !tx.to) {
                         try {
                             const receipt = await provider.getTransactionReceipt(tx.hash);
-                            console.log("[Radar] Receipt", {
-                                tx: tx.hash,
-                                contract: receipt?.contractAddress
-                            });
 
                             if (receipt && receipt.contractAddress) {
-                                console.log("[Radar] CONTRACT DETECTED", {
+                                console.log(`[Radar] ${network} CONTRACT DETECTED`, {
                                     address: receipt.contractAddress,
                                     creator: tx.from,
                                     block: b,
@@ -299,10 +330,13 @@ class ContractManager {
             }
 
             this.lastBlocks[network] = currentBlock;
+            this.persistBlocks();
         } catch (e) {
             console.error(`[${network}] Scan Failed:`, e.message);
             // Rotate on any network/RPC error (coalesce, fetch, CORS, rate limits)
             this.rotateProvider(network);
+        } finally {
+            this.isScanning[network] = false;
         }
     }
 
@@ -318,7 +352,11 @@ class ContractManager {
                 .from('contracts')
                 .upsert(contractToSave, { onConflict: 'id' });
 
-            if (error) console.error("Supabase Save Error:", error.message);
+            if (error) {
+                console.error("Supabase Save Error:", error.message);
+            } else {
+                console.log(`[Radar] Saved contract ${contract.address} on ${contract.network}`);
+            }
         } catch (e) {
             console.error("Save failed:", e);
         }

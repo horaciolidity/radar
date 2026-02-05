@@ -10,12 +10,12 @@ if (!fs.existsSync(DB_PATH)) fs.mkdirSync(DB_PATH);
 const STATE_FILE = path.join(DB_PATH, 'state.json');
 
 const RPC_CONFIG = {
-    'Ethereum': [process.env.RPC_ETHEREUM, 'https://eth.llamarpc.com', 'https://ethereum.publicnode.com', 'https://cloudflare-eth.com'],
-    'BSC': [process.env.RPC_BSC, 'https://binance.llamarpc.com', 'https://bsc-dataseed.binance.org'],
-    'Polygon': [process.env.RPC_POLYGON, 'https://polygon.llamarpc.com', 'https://polygon-rpc.com'],
-    'Base': [process.env.RPC_BASE, 'https://mainnet.base.org', 'https://base.llamarpc.com'],
-    'Arbitrum': [process.env.RPC_ARBITRUM, 'https://arbitrum.llamarpc.com', 'https://arb1.arbitrum.io/rpc'],
-    'Optimism': [process.env.RPC_OPTIMISM, 'https://optimism.llamarpc.com', 'https://mainnet.optimism.io']
+    'Ethereum': [process.env.RPC_ETHEREUM, 'https://eth.llamarpc.com', 'https://cloudflare-eth.com', 'https://ethereum.publicnode.com'],
+    'BSC': [process.env.RPC_BSC, 'https://binance.llamarpc.com', 'https://bsc-dataseed.binance.org', 'https://bsc.publicnode.com'],
+    'Polygon': [process.env.RPC_POLYGON, 'https://polygon.llamarpc.com', 'https://polygon-rpc.com', 'https://polygon.publicnode.com'],
+    'Base': [process.env.RPC_BASE, 'https://mainnet.base.org', 'https://base.llamarpc.com', 'https://base.publicnode.com'],
+    'Arbitrum': [process.env.RPC_ARBITRUM, 'https://arbitrum.llamarpc.com', 'https://arb1.arbitrum.io/rpc', 'https://arbitrum.publicnode.com'],
+    'Optimism': [process.env.RPC_OPTIMISM, 'https://optimism.llamarpc.com', 'https://mainnet.optimism.io', 'https://optimism.publicnode.com']
 };
 
 const getRpcUrl = (network) => {

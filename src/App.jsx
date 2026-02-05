@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Header from './components/Header';
 import FilterBar from './components/FilterBar';
 import ContractCard from './components/ContractCard';
@@ -23,6 +23,7 @@ function App() {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [account, setAccount] = useState(null);
+  const [foundThisSession, setFoundThisSession] = useState(0);
 
   const connectWallet = async () => {
     if (window.ethereum) {
@@ -104,6 +105,7 @@ function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'contracts' }, (payload) => {
         if (payload.eventType === 'INSERT') {
           setContracts(prev => [mapDbToInternal(payload.new), ...prev.slice(0, 99)]);
+          setFoundThisSession(prev => prev + 1);
         } else if (payload.eventType === 'UPDATE') {
           setContracts(prev => prev.map(c => c.id === payload.new.id ? mapDbToInternal(payload.new) : c));
         }
@@ -116,7 +118,7 @@ function App() {
   }, [activeFilters.network]);
 
   // Client-side scanning loops management
-  const intervalsRef = React.useRef({});
+  const intervalsRef = useRef({});
 
   useEffect(() => {
     const activeNetworks = Object.keys(scanStatus.activeScans).filter(nw => scanStatus.activeScans[nw]);
@@ -146,7 +148,7 @@ function App() {
     });
 
     return () => {
-      // We don't clear everything on every change, only on unmount
+      // Cleanup is handled by tracking activeScans
     };
   }, [scanStatus.activeScans]);
 
@@ -242,7 +244,7 @@ function App() {
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-primary font-mono text-sm">
                 <Activity size={16} className="animate-pulse" />
-                MULTI-CHAIN RADAR ACTIVE
+                MULTI-CHAIN RADAR ACTIVE {foundThisSession > 0 && `• [${foundThisSession} NEW DETECTIONS]`}
               </div>
               <h2 className="text-4xl font-black tracking-tight text-white uppercase italic">
                 Network <span className="text-primary">Radar</span>
