@@ -85,7 +85,7 @@ export async function analyzeContract(address, deployer, provider, network) {
                 analysis.name = await contract.name();
                 analysis.symbol = await contract.symbol();
             } catch (e) {
-                // Not a standard ERC20 or name/symbol not available
+                console.warn(`[Radar] Non-standard token or metadata missing for ${address}`);
             }
         }
 
@@ -127,7 +127,9 @@ export async function analyzeContract(address, deployer, provider, network) {
                 });
                 analysis.risk_score += 30;
             }
-        } catch (e) { }
+        } catch (e) {
+            console.warn(`[Radar] Could not fetch deployer balance`);
+        }
 
         // 5. Final Scoring
         analysis.risk_score = Math.min(analysis.risk_score, 100);
@@ -195,19 +197,27 @@ class ContractManager {
             console.log(`[${network}] Scanning from block ${startBlock} to ${currentBlock}...`);
 
             for (let b = startBlock; b <= currentBlock; b++) {
-                try {
-                    // Get block with full transactions
-                    const block = await provider.send("eth_getBlockByNumber", [ethers.toBeHex(b), true]);
+                // Get block with full transactions
+                const block = await provider.send("eth_getBlockByNumber", [ethers.toBeHex(b), true]);
 
-                    if (!block || !block.transactions) continue;
+                if (!block) {
+                    throw new Error(`Block ${b} not found (RPC failure)`);
+                }
 
-                    const contractTxs = block.transactions.filter(tx => tx.to === null || tx.to === '0x0000000000000000000000000000000000000000');
+                if (!block.transactions || !Array.isArray(block.transactions)) continue;
 
-                    for (const tx of contractTxs) {
+                for (const tx of block.transactions) {
+                    // Identify contract creation with tx.to === null
+                    if (tx.to === null) {
                         try {
                             const receipt = await provider.getTransactionReceipt(tx.hash);
                             if (receipt && receipt.contractAddress) {
-                                console.log(`[${network}] Found new contract: ${receipt.contractAddress}`);
+                                console.log("[Radar] Contract detected", {
+                                    network,
+                                    address: receipt.contractAddress,
+                                    txHash: tx.hash
+                                });
+
                                 const analysis = await analyzeContract(receipt.contractAddress, tx.from, provider, network);
                                 // Add block and tx data missing from analyzeContract
                                 analysis.block_number = b;
@@ -217,11 +227,9 @@ class ContractManager {
                                 await this.saveContract(analysis);
                             }
                         } catch (txErr) {
-                            console.warn(`[${network}] Failed tx receipt:`, txErr.message);
+                            console.warn(`[Radar] Error on receipt ${tx.hash}:`, txErr.message);
                         }
                     }
-                } catch (blockErr) {
-                    console.error(`[${network}] Error on block ${b}:`, blockErr.message);
                 }
             }
 
@@ -261,6 +269,7 @@ class ContractManager {
             await this.saveContract(analysis);
             return analysis;
         } catch (e) {
+            console.error("[Radar] Manual analysis failed:", e.message);
             return null;
         }
     }

@@ -86,7 +86,7 @@ export async function analyzeContract(address, deployer, provider, network = 'Et
                     analysis.features.push(`Supply: ${ethers.formatUnits(totalSupply, 18)}`);
                 }
             } catch (e) {
-                // Ignore if call fails
+                console.warn(`[Radar] Could not fetch token metadata for ${address}:`, e.message);
             }
         }
 
@@ -159,7 +159,9 @@ export async function analyzeContract(address, deployer, provider, network = 'Et
                 });
                 analysis.riskScore += 30;
             }
-        } catch (e) { }
+        } catch (e) {
+            console.warn(`[Radar] Could not fetch deployer balance:`, e.message);
+        }
 
         // 7. Final Scoring & Tagging
         analysis.riskScore = Math.min(analysis.riskScore, 100);

@@ -132,45 +132,45 @@ export class ContractIndexer {
         const provider = this.getProvider(network);
         if (!provider) return;
 
-        try {
-            console.log(`[${network}] Scanning block ${blockNumber}...`);
-            // Use a timeout for the RPC call to prevent hanging
-            const blockRequest = provider.send("eth_getBlockByNumber", [ethers.toBeHex(blockNumber), true]);
-            const block = await Promise.race([
-                blockRequest,
-                new Promise((_, reject) => setTimeout(() => reject(new Error("RPC Timeout")), 15000))
-            ]);
+        console.log(`[${network}] Scanning block ${blockNumber}...`);
 
-            if (!block || !block.transactions) return;
+        const block = await provider.send("eth_getBlockByNumber", [ethers.toBeHex(blockNumber), true]);
 
-            for (const tx of block.transactions) {
-                // Check for contract creation (to is null or 0x0)
-                if (tx.to === null || tx.to === '0x0000000000000000000000000000000000000000') {
-                    try {
-                        const receipt = await provider.getTransactionReceipt(tx.hash);
-                        if (receipt && receipt.contractAddress) {
-                            const analysis = await analyzeContract(receipt.contractAddress, tx.from, provider, network);
+        if (!block) {
+            throw new Error(`Block ${blockNumber} not found (RPC failure)`);
+        }
 
-                            const completeData = {
-                                id: `${network}-${receipt.contractAddress}`.toLowerCase(),
-                                address: receipt.contractAddress,
-                                deployer: tx.from,
-                                ...analysis,
-                                blockNumber: parseInt(block.number, 16),
-                                txHash: tx.hash,
-                                network,
-                                timestamp: new Date(parseInt(block.timestamp, 16) * 1000).toISOString()
-                            };
-                            await this.addContract(completeData);
-                            console.log(`[${network}] Found contract ${receipt.contractAddress} at block ${blockNumber}`);
-                        }
-                    } catch (txErr) {
-                        console.error(`[${network}] Error processing tx ${tx.hash}:`, txErr.message);
+        if (!block.transactions) return;
+
+        for (const tx of block.transactions) {
+            // Check for contract creation with tx.to === null
+            if (tx.to === null) {
+                try {
+                    const receipt = await provider.getTransactionReceipt(tx.hash);
+                    if (receipt && receipt.contractAddress) {
+                        console.log("[Radar] Contract detected", {
+                            network,
+                            address: receipt.contractAddress,
+                            txHash: tx.hash
+                        });
+
+                        const analysis = await analyzeContract(receipt.contractAddress, tx.from, provider, network);
+                        const completeData = {
+                            id: `${network}-${receipt.contractAddress}`.toLowerCase(),
+                            address: receipt.contractAddress,
+                            deployer: tx.from,
+                            ...analysis,
+                            blockNumber: parseInt(block.number, 16),
+                            txHash: tx.hash,
+                            network,
+                            timestamp: new Date(parseInt(block.timestamp, 16) * 1000).toISOString()
+                        };
+                        await this.addContract(completeData);
                     }
+                } catch (txErr) {
+                    console.error(`[Radar] Error on receipt ${tx.hash}:`, txErr.message);
                 }
             }
-        } catch (err) {
-            console.error(`[${network}] Error scanning block ${blockNumber}:`, err.message);
         }
     }
 
