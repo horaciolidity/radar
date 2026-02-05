@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from './lib/supabase';
 import { contractManager } from './lib/contractManager';
 import WalletRadar from './components/WalletRadar';
+import { cn } from './lib/utils';
 
 function App() {
   const [contracts, setContracts] = useState([]);
