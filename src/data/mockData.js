@@ -1,9 +1,10 @@
 export const NETWORKS = [
-    { id: 'eth', name: 'Ethereum', icon: '🌐', color: '#627EEA' },
-    { id: 'bsc', name: 'BSC', icon: '🟡', color: '#F3BA2F' },
-    { id: 'polygon', name: 'Polygon', icon: '🟣', color: '#8247E5' },
-    { id: 'base', name: 'Base', icon: '🔵', color: '#0052FF' },
-    { id: 'solana', name: 'Solana', icon: '🟢', color: '#14F195' },
+    { id: 'Ethereum', name: 'Ethereum', icon: '🌐', color: '#627EEA' },
+    { id: 'BSC', name: 'BSC', icon: '🟡', color: '#F3BA2F' },
+    { id: 'Polygon', name: 'Polygon', icon: '🟣', color: '#8247E5' },
+    { id: 'Base', name: 'Base', icon: '🔵', color: '#0052FF' },
+    { id: 'Arbitrum', name: 'Arbitrum', icon: '🟦', color: '#28A0F0' },
+    { id: 'Optimism', name: 'Optimism', icon: '🔴', color: '#FF0420' },
 ];
 
 export const CONTRACTS_MOCK = [

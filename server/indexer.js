@@ -125,33 +125,32 @@ export class ContractIndexer {
 
         try {
             console.log(`[${network}] Scanning block ${blockNumber}...`);
-            const block = await provider.getBlock(blockNumber, true);
-            if (!block || !block.prefetchedTransactions) return;
+            const block = await provider.send("eth_getBlockByNumber", [ethers.toBeHex(blockNumber), true]);
 
-            for (const tx of block.prefetchedTransactions) {
-                if (tx.to === null) {
-                    const receipt = await provider.getTransactionReceipt(tx.hash);
-                    if (receipt && receipt.contractAddress) {
-                        const analysis = await analyzeContract(receipt.contractAddress, tx.from, provider);
+            if (!block || !block.transactions) return;
 
-                        // Age Estimation for historical blocks
-                        const currentBlock = await provider.getBlockNumber();
-                        const blocksAgo = currentBlock - blockNumber;
-                        const estimatedTs = new Date(Date.now() - (blocksAgo * 12 * 1000)).toISOString();
+            for (const tx of block.transactions) {
+                if (tx.to === null || tx.to === '0x0000000000000000000000000000000000000000') {
+                    try {
+                        const receipt = await provider.getTransactionReceipt(tx.hash);
+                        if (receipt && receipt.contractAddress) {
+                            const analysis = await analyzeContract(receipt.contractAddress, tx.from, provider);
 
-                        const completeData = {
-                            id: `${network}-${receipt.contractAddress}`.toLowerCase(),
-                            address: receipt.contractAddress,
-                            deployer: tx.from,
-                            ...analysis,
-                            blockNumber,
-                            txHash: tx.hash,
-                            network,
-                            blockchain: network,
-                            timestamp: block.timestamp ? new Date(block.timestamp * 1000).toISOString() : estimatedTs
-                        };
-                        await this.addContract(completeData);
-                        console.log(`[${network}] Found contract ${receipt.contractAddress} at block ${blockNumber}`);
+                            const completeData = {
+                                id: `${network}-${receipt.contractAddress}`.toLowerCase(),
+                                address: receipt.contractAddress,
+                                deployer: tx.from,
+                                ...analysis,
+                                blockNumber: parseInt(block.number, 16),
+                                txHash: tx.hash,
+                                network,
+                                timestamp: new Date(parseInt(block.timestamp, 16) * 1000).toISOString()
+                            };
+                            await this.addContract(completeData);
+                            console.log(`[${network}] Found contract ${receipt.contractAddress} at block ${blockNumber}`);
+                        }
+                    } catch (txErr) {
+                        console.error(`[${network}] Error processing tx ${tx.hash}:`, txErr.message);
                     }
                 }
             }

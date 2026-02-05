@@ -201,7 +201,7 @@ function App() {
     // Safety filters mapping to backend data
     if (activeFilters.safety.includes('isSafe') && contract.tag !== 'SAFE') return false;
     if (activeFilters.safety.includes('noVulnerability') && contract.isVulnerable) return false;
-    if (activeFilters.safety.includes('isNotScam') && contract.isNotScam === false) return false;
+    if (activeFilters.safety.includes('isNotScam') && contract.isScam) return false;
 
     // Risk filters
     if (activeFilters.risk.includes('isVulnerable') && !contract.isVulnerable) return false;

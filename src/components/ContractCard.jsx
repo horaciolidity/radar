@@ -18,7 +18,19 @@ const formatTime = (ts) => {
 
 export default function ContractCard({ contract }) {
     const [isExpanded, setIsExpanded] = useState(false);
-    const network = NETWORKS.find(n => n.name.toLowerCase() === contract.blockchain.toLowerCase()) || NETWORKS[0];
+    const network = NETWORKS.find(n => n.id.toLowerCase() === contract.network.toLowerCase()) || NETWORKS[0];
+
+    const getExplorerUrl = () => {
+        const explorers = {
+            'Ethereum': 'https://etherscan.io',
+            'BSC': 'https://bscscan.com',
+            'Polygon': 'https://polygonscan.com',
+            'Base': 'https://basescan.org',
+            'Arbitrum': 'https://arbiscan.io',
+            'Optimism': 'https://optimistic.etherscan.io'
+        };
+        return `${explorers[contract.network] || 'https://etherscan.io'}/address/${contract.address}`;
+    };
 
     const copyAddress = () => {
         navigator.clipboard.writeText(contract.address);
@@ -85,12 +97,14 @@ export default function ContractCard({ contract }) {
                         <Wallet size={12} />
                         <p className="text-[10px] uppercase font-bold">Deployer</p>
                     </div>
-                    <span className="text-xs font-semibold text-zinc-300">{contract.deployer.slice(0, 6)}...</span>
+                    <span className="text-xs font-semibold text-zinc-300">
+                        {contract.deployer ? `${contract.deployer.slice(0, 6)}...` : '0x...'}
+                    </span>
                 </div>
             </div>
 
             {/* Evidence & Findings */}
-            {contract.findings.length > 0 && (
+            {contract.findings && contract.findings.length > 0 && (
                 <div className="space-y-2">
                     <div className="flex items-center justify-between">
                         <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-1">
@@ -106,7 +120,7 @@ export default function ContractCard({ contract }) {
                     </div>
 
                     <div className="space-y-2">
-                        {contract.findings.slice(0, isExpanded ? 5 : 1).map((f, i) => (
+                        {contract.findings.slice(0, isExpanded ? 10 : 1).map((f, i) => (
                             <div key={i} className="bg-zinc-900/80 rounded-lg p-3 border border-white/5">
                                 <div className="flex items-center justify-between mb-1">
                                     <span className={cn(
@@ -137,14 +151,14 @@ export default function ContractCard({ contract }) {
             {/* Footer Features */}
             <div className="flex items-center justify-between pt-2 border-t border-white/5 mt-auto">
                 <div className="flex gap-1.5 overflow-hidden">
-                    {contract.features.slice(0, 3).map(f => (
+                    {contract.features && contract.features.slice(0, 3).map(f => (
                         <span key={f} className="text-[9px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded uppercase font-bold">
                             {f}
                         </span>
                     ))}
                 </div>
                 <a
-                    href={`https://etherscan.io/address/${contract.address}`}
+                    href={getExplorerUrl()}
                     target="_blank"
                     rel="noreferrer"
                     className="p-1.5 hover:bg-primary/20 text-zinc-500 hover:text-primary rounded-lg transition-all"

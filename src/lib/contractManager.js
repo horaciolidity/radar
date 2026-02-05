@@ -155,20 +155,32 @@ class ContractManager {
 
         try {
             const currentBlock = await provider.getBlockNumber();
+            console.log(`[${network}] Scanning last ${count} blocks starting from ${currentBlock}...`);
+
             for (let i = 0; i < count; i++) {
                 const blockNumber = currentBlock - i;
-                const block = await provider.getBlock(blockNumber, true);
-                if (!block) continue;
+                // Try to get block with full transactions directly
+                const block = await provider.send("eth_getBlockByNumber", [ethers.toBeHex(blockNumber), true]);
 
-                // Note: v6 block.transactions is different from v5
-                for (const txHash of block.transactions) {
-                    const tx = typeof txHash === 'string' ? await provider.getTransaction(txHash) : txHash;
-                    if (tx && tx.to === null) {
+                if (!block || !block.transactions) {
+                    console.log(`[${network}] Block ${blockNumber} not found or empty.`);
+                    continue;
+                }
+
+                console.log(`[${network}] Processing ${block.transactions.length} txs in block ${blockNumber}`);
+
+                const contractTxs = block.transactions.filter(tx => tx.to === null || tx.to === '0x0000000000000000000000000000000000000000');
+
+                for (const tx of contractTxs) {
+                    try {
                         const receipt = await provider.getTransactionReceipt(tx.hash);
                         if (receipt && receipt.contractAddress) {
+                            console.log(`[${network}] Found new contract: ${receipt.contractAddress}`);
                             const analysis = await analyzeContract(receipt.contractAddress, tx.from, provider, network);
                             await this.saveContract(analysis);
                         }
+                    } catch (txErr) {
+                        console.warn(`[${network}] Failed to process tx ${tx.hash}:`, txErr.message);
                     }
                 }
             }
