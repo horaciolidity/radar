@@ -2,10 +2,10 @@ import { ethers } from 'ethers';
 import { supabase } from './supabase';
 
 const RPC_CONFIG = {
-    'Ethereum': ['https://eth.publicnode.com', 'https://rpc.ankr.com/eth', 'https://cloudflare-eth.com'],
-    'BSC': ['https://binance.llamarpc.com', 'https://bsc-dataseed.binance.org', 'https://bsc-dataseed1.defibit.io'],
-    'Polygon': ['https://polygon.llamarpc.com', 'https://polygon-rpc.com', 'https://rpc-mainnet.maticvigil.com'],
-    'Base': ['https://mainnet.base.org', 'https://base.llamarpc.com'],
+    'Ethereum': ['https://rpc.ankr.com/eth', 'https://cloudflare-eth.com', 'https://eth.drpc.org'],
+    'BSC': ['https://bsc-dataseed.binance.org', 'https://rpc.ankr.com/bsc', 'https://binance.llamarpc.com'],
+    'Polygon': ['https://polygon-rpc.com', 'https://rpc.ankr.com/polygon', 'https://polygon.llamarpc.com'],
+    'Base': ['https://mainnet.base.org', 'https://base.publicnode.com'],
     'Arbitrum': ['https://arb1.arbitrum.io/rpc', 'https://arbitrum.publicnode.com'],
     'Optimism': ['https://mainnet.optimism.io', 'https://optimism.publicnode.com']
 };
