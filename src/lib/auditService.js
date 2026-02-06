@@ -336,20 +336,29 @@ contract ExploitTest is Test {
     }
 
     function testReentrancyExploit() public {
-        console.log("Before: Target Balance", address(target).balance);
-        console.log("Before: Attacker Balance", address(attacker).balance);
+        uint256 initialTargetBal = address(target).balance;
+        uint256 initialAttackerBal = address(attacker).balance;
 
+        // PRECONDITIONS
+        assertEq(initialTargetBal, 10 ether, "Target should start with 10 ETH");
+        
+        console.log("Before: Target Balance", initialTargetBal);
+
+        // ACTION
         attacker.attack{value: 1 ether}();
 
-        console.log("After: Target Balance", address(target).balance);
-        console.log("After: Attacker Balance", address(attacker).balance);
+        // VALIDATION
+        uint256 finalTargetBal = address(target).balance;
+        uint256 finalAttackerBal = address(attacker).balance;
 
-        assertEq(address(target).balance, 0, "Target not drained");
-        assertGt(address(attacker).balance, 10 ether, "Attacker did not profit");
+        console.log("After: Target Balance", finalTargetBal);
+        
+        assertEq(finalTargetBal, 0, "Target should be drained");
+        assertGt(finalAttackerBal, initialAttackerBal, "Attacker should profit");
     }
 }`
                 },
-                successCriteria: "Target Code balance == 0 && Attacker Code balance > Initial"
+                successCriteria: "Target Balance == 0 && Attacker Balance > Initial"
             }
         };
     },
