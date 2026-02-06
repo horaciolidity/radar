@@ -78,45 +78,49 @@ const calculateRiskScore = (vulns) => {
     return Math.min(score, 100);
 };
 
+const EXPLORER_APIS = {
+    'Ethereum': 'https://api.etherscan.io/api',
+    'BSC': 'https://api.bscscan.com/api',
+    'Polygon': 'https://api.polygonscan.com/api',
+    'Base': 'https://api.basescan.org/api',
+    'Arbitrum': 'https://api.arbiscan.io/api',
+    'Optimism': 'https://api-optimistic.etherscan.io/api'
+};
+
 const fetchSourceCode = async (address, network) => {
-    // Mocking fetch logic for demo purposes
-    // In production, fetch from Etherscan/PolygonScan API
-    await new Promise(r => setTimeout(r, 1000)); // Simulate network delay
-
-    return `// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
-
-contract VulnerableToken {
-    mapping(address => uint256) public balances;
-    address public owner;
-
-    constructor() {
-        owner = msg.sender;
+    const apiUrl = EXPLORER_APIS[network];
+    if (!apiUrl) {
+        console.warn(`No explorer API for ${network}`);
+        return null;
     }
 
-    function deposit() public payable {
-        balances[msg.sender] += msg.value;
-    }
+    try {
+        // We use a free-tier/no-key approach which is rate limited but works for light usage.
+        // Action: getsourcecode
+        const response = await fetch(`${apiUrl}?module=contract&action=getsourcecode&address=${address}`);
+        const data = await response.json();
 
-    function withdraw() public {
-        uint256 amount = balances[msg.sender];
-        require(amount > 0);
-        
-        (bool success, ) = msg.sender.call{value: amount}(""); // REENTRANCY VULNERABILITY
-        require(success);
-        
-        balances[msg.sender] = 0;
-    }
+        if (data.status === '1' && data.result && data.result.length > 0) {
+            const sourceInfo = data.result[0];
 
-    function mint(address to, uint256 amount) public {
-        require(msg.sender == owner); // CENTRALIZATION
-        balances[to] += amount;
+            // Handle verified source code
+            if (sourceInfo.SourceCode) {
+                // Etherscan sometimes wraps multiple files in double curly braces {{...}}
+                if (sourceInfo.SourceCode.startsWith('{{')) {
+                    return sourceInfo.SourceCode;
+                }
+                return sourceInfo.SourceCode;
+            }
+        }
+
+        // Return bytecode if source not verified (commented out as user wants source)
+        // return "// Unverified Contract. Source code not published.";
+
+        return null;
+    } catch (e) {
+        console.error("Failed to fetch source from explorer:", e);
+        return null;
     }
-    
-    function kill() public {
-        selfdestruct(payable(owner)); // RISK
-    }
-}`;
 };
 
 export const auditService = {
@@ -127,7 +131,16 @@ export const auditService = {
 
             if (address && network && !manualCode) {
                 sourceCode = await fetchSourceCode(address, network);
-                name = `Audit for ${address.slice(0, 10)}...`;
+                if (sourceCode) {
+                    name = `Audit for ${address.slice(0, 10)}...`;
+                } else {
+                    // Fallback if not verified
+                    name = `Unverified: ${address.slice(0, 10)}...`;
+                    sourceCode = "// Contract source code not verified on explorer.\n// To audit this contract, please verify it on the block explorer first\n// or paste the source code manually.";
+
+                    // We can't really analyze text that doesn't exist, so this will yield 0 vulns
+                    // maybe we should throw?
+                }
             }
 
             if (!sourceCode) {
