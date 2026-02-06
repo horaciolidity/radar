@@ -274,7 +274,7 @@ export const auditService = {
         console.log("Generating exploit with prompt length:", prompt.length);
 
         try {
-            const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/generate-exploit`, {
+            const response = await fetch('/api/generate-exploit', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ prompt })
@@ -309,7 +309,7 @@ export const auditService = {
         console.log("Verifying exploit with prompt length:", prompt.length);
 
         try {
-            const response = await fetch(`${API_URL}/api/verify-exploit`, {
+            const response = await fetch('/api/verify-exploit', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ prompt })
