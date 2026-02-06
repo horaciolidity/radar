@@ -35,8 +35,8 @@ const CodeViewer = ({ code, vulnerabilities, selectedVuln, onLineClick }) => {
 
     // Scroll to selected vulnerability
     useEffect(() => {
-        if (selectedVuln && scrollRef.current) {
-            const lineEl = document.getElementById(`line-${selectedVuln.startLine}`);
+        if (selectedVuln && scrollRef.current && selectedVuln.lines) {
+            const lineEl = document.getElementById(`line-${selectedVuln.lines[0]}`);
             if (lineEl) {
                 lineEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
@@ -72,20 +72,21 @@ const CodeViewer = ({ code, vulnerabilities, selectedVuln, onLineClick }) => {
                         const lineNum = index + 1;
 
                         // Check if this line is part of a vulnerability
-                        const vuln = vulnerabilities?.find(v => lineNum >= v.startLine && lineNum <= v.endLine);
+                        const vuln = vulnerabilities?.find(v => v.lines && lineNum >= v.lines[0] && lineNum <= v.lines[1]);
 
                         // Risk colors
                         let bgClass = "transparent";
                         let borderClass = "transparent";
 
                         if (vuln) {
-                            if (vuln.severity === 'CRITICAL') {
+                            const sev = vuln.severity?.toLowerCase();
+                            if (sev === 'critical') {
                                 bgClass = "bg-red-500/10";
                                 borderClass = "border-l-2 border-red-500";
-                            } else if (vuln.severity === 'HIGH') {
+                            } else if (sev === 'high') {
                                 bgClass = "bg-orange-500/10";
                                 borderClass = "border-l-2 border-orange-500";
-                            } else if (vuln.severity === 'MEDIUM') {
+                            } else if (sev === 'medium') {
                                 bgClass = "bg-yellow-500/10";
                                 borderClass = "border-l-2 border-yellow-500";
                             } else {
@@ -95,9 +96,10 @@ const CodeViewer = ({ code, vulnerabilities, selectedVuln, onLineClick }) => {
                         }
 
                         // Selected State
-                        const isSelected = selectedVuln && lineNum >= selectedVuln.startLine && lineNum <= selectedVuln.endLine;
+                        const isSelected = selectedVuln && selectedVuln.lines && lineNum >= selectedVuln.lines[0] && lineNum <= selectedVuln.lines[1];
                         if (isSelected) {
-                            bgClass = vuln?.severity === 'CRITICAL' ? "bg-red-500/20" : "bg-primary/10";
+                            const sev = vuln?.severity?.toLowerCase();
+                            bgClass = sev === 'critical' ? "bg-red-500/20" : "bg-primary/10";
                         }
 
                         // Highlighting keyword logic (Simple Naive implementation)

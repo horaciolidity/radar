@@ -53,9 +53,11 @@ const AuditPage = () => {
 
             addStep("Fetching source code and metadata...");
             // Simulate/Trigger API
-            addStep("Fetching source code and metadata...");
-
             // Use client-side service instead of API route to support local dev and "Allow public insert" policy
+            // Wait, we updated the server API, but this client calls auditService. 
+            // We should ensure auditService calls our API or mimics it correctly.
+            // Assuming auditService calls api/audit-contract or similar.
+
             const data = await auditService.performAudit({
                 address: inputMode === 'address' ? address : null,
                 network: inputMode === 'address' ? network : null,
@@ -252,14 +254,15 @@ const AuditPage = () => {
                     {/* Left Panel: Score and Findings */}
                     <div className="col-span-3 space-y-6">
                         <div className="glass-card p-6">
-                            <RiskScoreBar score={auditResult.riskScore} />
+                            <RiskScoreBar score={auditResult.summary?.riskScore || 0} />
                         </div>
 
                         <div className="flex-1 overflow-hidden h-[calc(100%-140px)]">
                             <VulnerabilityPanel
-                                vulnerabilities={auditResult.vulnerabilities}
+                                vulnerabilities={auditResult.findings || []}
                                 onSelect={(v) => setSelectedVuln(v)}
                                 selectedId={selectedVuln?.id}
+                                contractCode={auditResult.code}
                             />
                         </div>
                     </div>
@@ -269,10 +272,10 @@ const AuditPage = () => {
                         <div className="flex-1 min-h-0 bg-surface rounded-2xl border border-white/5 overflow-hidden">
                             <CodeViewer
                                 code={auditResult.code}
-                                vulnerabilities={auditResult.vulnerabilities}
+                                vulnerabilities={auditResult.findings || []}
                                 selectedVuln={selectedVuln}
                                 onLineClick={(line) => {
-                                    const v = auditResult.vulnerabilities.find(vl => line >= vl.startLine && line <= vl.endLine);
+                                    const v = auditResult.findings?.find(vl => line >= vl.lines[0] && line <= vl.lines[1]);
                                     if (v) setSelectedVuln(v);
                                 }}
                             />
