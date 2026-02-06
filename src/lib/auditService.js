@@ -172,7 +172,12 @@ const EXPLORER_APIS = {
     'Polygon': 'https://api.polygonscan.com/api',
     'Base': 'https://api.basescan.org/api',
     'Arbitrum': 'https://api.arbiscan.io/api',
-    'Optimism': 'https://api-optimistic.etherscan.io/api'
+    'Optimism': 'https://api-optimistic.etherscan.io/api',
+    'Avalanche': 'https://api.snowtrace.io/api',
+    'Fantom': 'https://api.ftmscan.com/api',
+    'Cronos': 'https://api.cronoscan.com/api',
+    'Moonbeam': 'https://api-moonbeam.moonscan.io/api',
+    'Gnosis': 'https://api.gnosisscan.io/api'
 };
 
 const fetchSourceCode = async (address, network) => {
@@ -220,7 +225,26 @@ const fetchSourceCode = async (address, network) => {
 // ==========================================
 // 4. MAIN SERVICE EXPORT
 // ==========================================
+import { AUDIT_PROMPT } from './aiPrompt';
+
 export const auditService = {
+    // OpenAI/Anthropic Integration Placeholder
+    async performAIAudit(code, network, apiKey) {
+        /* 
+           IMPLEMENTATION GUIDE:
+           1. Replace {{NETWORK}} and {{ADDRESS}} in AUDIT_PROMPT
+           2. Send to GPT-4 or Claude 3.5 Sonnet
+           3. Parse JSON response
+           4. Merge with static analysis results
+        */
+        const prompt = AUDIT_PROMPT
+            .replace('{{NETWORK}}', network || 'Unknown')
+            .replace('{{ADDRESS}}', '0x...');
+
+        console.log("Ready to send prompt:", prompt);
+        return []; // Return parsed findings
+    },
+
     async performAudit({ address, network, code: manualCode }) {
         try {
             let sourceCode = manualCode;
