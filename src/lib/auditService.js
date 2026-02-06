@@ -20,18 +20,32 @@ const analyzeSecurity = (code) => {
         });
     }
 
-    // Centralization check
-    if (code.includes('require(msg.sender == owner)')) {
-        vulnerabilities.push({
-            id: 'v2',
-            title: 'Centralization Risk',
-            severity: 'HIGH',
-            startLine: 28,
-            endLine: 31,
-            explanation: 'Critical functions like minting are restricted to a single owner address.',
-            impact: 'The owner can manipulate the token supply or block user functions if the key is compromised.',
-            recommendation: 'Consider using a Multi-Sig wallet or a DAO governance for owner-restricted functions.'
-        });
+    // Centralization check (Ownership)
+    if (code.includes('onlyOwner') || code.includes('require(msg.sender == owner)')) {
+        // Only classify as High Risk if it controls Minting or SelfDestruct
+        if (code.includes('mint') || code.includes('_mint')) {
+            vulnerabilities.push({
+                id: 'v2',
+                title: 'Centralized Minting',
+                severity: 'HIGH',
+                startLine: 1, // Placeholder
+                endLine: 1,
+                explanation: 'Contract allows the owner to mint tokens, potentially diluting supply.',
+                impact: 'Owner can manipulate token price by printing unlimited tokens.',
+                recommendation: 'Use a Multi-Sig wallet or remove minting capability after launch.'
+            });
+        } else {
+            vulnerabilities.push({
+                id: 'v2-info',
+                title: 'Centralization (Ownable)',
+                severity: 'LOW', // Downgraded from HIGH
+                startLine: 1,
+                endLine: 1,
+                explanation: 'Contract has privileged functions restricted to an owner.',
+                impact: 'Reliance on a single key for administrative actions.',
+                recommendation: 'Ensure owner is a secure wallet (Multisig/DAO).'
+            });
+        }
     }
 
     // Selfdestruct check
@@ -52,19 +66,25 @@ const analyzeSecurity = (code) => {
 };
 
 const simulateAIReview = (code, existing) => {
-    // Simulate some high-level semantic findings
-    return [
-        {
-            id: 'ai1',
-            title: 'Logic Flaw: Unchecked Balances',
-            severity: 'MEDIUM',
-            startLine: 12,
-            endLine: 14,
-            explanation: 'AI detected a potential integer overflow or logic flaw in how balances are incremented.',
-            impact: 'Potential accounting errors in complex edge cases.',
-            recommendation: 'Use OpenZeppelin SafeMath or ensure Solidity 0.8+ is correctly configured.'
-        }
-    ];
+    // Client-side Semantic Check (Heuristics)
+    // In the future, this could be replaced by a call to OpenAI/Claude API
+    const findings = [];
+
+    // Check for floating pragma
+    if (/pragma solidity \^/.test(code)) {
+        findings.push({
+            id: 'ai-pragma',
+            title: 'Floating Pragma',
+            severity: 'LOW',
+            startLine: 1,
+            endLine: 1,
+            explanation: 'Contract uses a floating pragma (e.g. ^0.8.0), which allows compiling with potentially unstable future compiler versions.',
+            impact: 'Risk of unexpected behavior if compiled with a buggy newer compiler version.',
+            recommendation: 'Lock the pragma version (e.g. pragma solidity 0.8.19;).'
+        });
+    }
+
+    return findings;
 };
 
 const calculateRiskScore = (vulns) => {
@@ -106,8 +126,25 @@ const fetchSourceCode = async (address, network) => {
             // Handle verified source code
             if (sourceInfo.SourceCode) {
                 // Etherscan sometimes wraps multiple files in double curly braces {{...}}
-                if (sourceInfo.SourceCode.startsWith('{{')) {
-                    return sourceInfo.SourceCode;
+                // Or returns a JSON object string for multi-part contracts
+                if (sourceInfo.SourceCode.startsWith('{')) {
+                    try {
+                        // Some responses are like {{ "language": "Solidity", ... }} so we strip one layer if needed
+                        let jsonContent = sourceInfo.SourceCode;
+                        if (jsonContent.startsWith('{{') && jsonContent.endsWith('}}')) {
+                            jsonContent = jsonContent.slice(1, -1);
+                        }
+
+                        const parsed = JSON.parse(jsonContent);
+                        if (parsed.sources) {
+                            // Concatenate all source files into one for display/analysis
+                            return Object.entries(parsed.sources)
+                                .map(([path, content]) => `// File: ${path}\n\n${content.content}`)
+                                .join('\n\n');
+                        }
+                    } catch (err) {
+                        console.warn("Failed to parse SourceCode JSON, returning raw", err);
+                    }
                 }
                 return sourceInfo.SourceCode;
             }

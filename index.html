@@ -1,16 +1,44 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Contract Radar | Real-Time Cross-Chain Analysis</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Contract Radar | Real-Time Cross-Chain Analysis</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap"
+    rel="stylesheet">
+  <script>
+    // Aggressively filter out TronLink/Lockdown noise
+    (function () {
+      const originalError = console.error;
+      const originalWarn = console.warn;
+
+      const isNoise = (args) => {
+        const str = args.map(a => String(a)).join(' ');
+        return str.includes('SES_UNCAUGHT_EXCEPTION') ||
+          str.includes('lockdown-install.js') ||
+          str.includes('Removing unpermitted intrinsics') ||
+          str.includes('Deprecation warning: tabReply');
+      };
+
+      console.error = function (...args) {
+        if (!isNoise(args)) originalError.apply(console, args);
+      };
+
+      console.warn = function (...args) {
+        if (!isNoise(args)) originalWarn.apply(console, args);
+      };
+    })();
+  </script>
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+</body>
+
 </html>
