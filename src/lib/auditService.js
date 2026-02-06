@@ -115,43 +115,56 @@ const fetchSourceCode = async (address, network) => {
     }
 
     try {
-        // We use a free-tier/no-key approach which is rate limited but works for light usage.
-        // Action: getsourcecode
+        // 1. Fetch Contract ABI/Source to check for Proxy or direct source
         const response = await fetch(`${apiUrl}?module=contract&action=getsourcecode&address=${address}`);
         const data = await response.json();
 
-        if (data.status === '1' && data.result && data.result.length > 0) {
-            const sourceInfo = data.result[0];
+        if (data.status !== '1' || !data.result || data.result.length === 0) {
+            console.warn(`[Audit] Fetch failed for ${address}:`, data.message);
+            return null;
+        }
 
-            // Handle verified source code
-            if (sourceInfo.SourceCode) {
-                // Etherscan sometimes wraps multiple files in double curly braces {{...}}
-                // Or returns a JSON object string for multi-part contracts
-                if (sourceInfo.SourceCode.startsWith('{')) {
-                    try {
-                        // Some responses are like {{ "language": "Solidity", ... }} so we strip one layer if needed
-                        let jsonContent = sourceInfo.SourceCode;
-                        if (jsonContent.startsWith('{{') && jsonContent.endsWith('}}')) {
-                            jsonContent = jsonContent.slice(1, -1);
-                        }
+        const sourceInfo = data.result[0];
 
-                        const parsed = JSON.parse(jsonContent);
-                        if (parsed.sources) {
-                            // Concatenate all source files into one for display/analysis
-                            return Object.entries(parsed.sources)
-                                .map(([path, content]) => `// File: ${path}\n\n${content.content}`)
-                                .join('\n\n');
-                        }
-                    } catch (err) {
-                        console.warn("Failed to parse SourceCode JSON, returning raw", err);
-                    }
-                }
-                return sourceInfo.SourceCode;
+        // 2. Check if it's a Proxy (Etherscan usually returns this field)
+        if (sourceInfo.Proxy === "1" && sourceInfo.Implementation && sourceInfo.Implementation !== address) {
+            console.log(`[Audit] Proxy detected for ${address}. Fetching implementation at ${sourceInfo.Implementation}...`);
+            // Recursive call to fetch the ACTUAL logic
+            // We append a comment header to indicate this happened
+            const implSource = await fetchSourceCode(sourceInfo.Implementation, network);
+            if (implSource) {
+                return `// *** PROXY DETECTED ***\n// Logical Address: ${sourceInfo.Implementation}\n// Proxy Address: ${address}\n\n` + implSource;
             }
         }
 
-        // Return bytecode if source not verified (commented out as user wants source)
-        // return "// Unverified Contract. Source code not published.";
+        // 3. Handle verified source code
+        if (sourceInfo.SourceCode) {
+            // Handle "Unverified" explicit return (rare but possible in some states)
+            if (sourceInfo.SourceCode === '') return null;
+
+            // Etherscan sometimes wraps multiple files in double curly braces {{...}}
+            // Or returns a JSON object string for multi-part contracts
+            if (sourceInfo.SourceCode.startsWith('{')) {
+                try {
+                    let jsonContent = sourceInfo.SourceCode;
+                    // Clean up potential double curly braces {{ ... }}
+                    if (jsonContent.startsWith('{{') && jsonContent.endsWith('}}')) {
+                        jsonContent = jsonContent.slice(1, -1);
+                    }
+
+                    const parsed = JSON.parse(jsonContent);
+                    // Standard JSON input format
+                    if (parsed.sources) {
+                        return Object.entries(parsed.sources)
+                            .map(([path, content]) => `// =====================================\n// File: ${path}\n// =====================================\n\n${content.content}`)
+                            .join('\n\n');
+                    }
+                } catch (err) {
+                    console.warn("Failed to parse SourceCode JSON, attempting to return raw", err);
+                }
+            }
+            return sourceInfo.SourceCode;
+        }
 
         return null;
     } catch (e) {

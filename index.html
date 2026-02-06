@@ -14,15 +14,17 @@
   <script>
     // Aggressively filter out TronLink/Lockdown noise
     (function () {
+      // 1. Suppress console.error/warn
       const originalError = console.error;
       const originalWarn = console.warn;
 
       const isNoise = (args) => {
-        const str = args.map(a => String(a)).join(' ');
+        const str = Array.isArray(args) ? args.map(a => String(a)).join(' ') : String(args);
         return str.includes('SES_UNCAUGHT_EXCEPTION') ||
           str.includes('lockdown-install.js') ||
           str.includes('Removing unpermitted intrinsics') ||
-          str.includes('Deprecation warning: tabReply');
+          str.includes('Deprecation warning: tabReply') ||
+          str.includes('null'); // TronLink often throws just "null" with SES
       };
 
       console.error = function (...args) {
@@ -31,6 +33,22 @@
 
       console.warn = function (...args) {
         if (!isNoise(args)) originalWarn.apply(console, args);
+      };
+
+      // 2. Suppress Uncaught Exceptions (window.onerror)
+      window.onerror = function (message, source, lineno, colno, error) {
+        const str = String(message) + String(source);
+        if (str.includes('SES_UNCAUGHT_EXCEPTION') || str.includes('lockdown')) {
+          return true; // Prevents the firing of the default event handler
+        }
+      };
+
+      // 3. Suppress Unhandled Rejections
+      window.onunhandledrejection = function (event) {
+        const str = String(event.reason);
+        if (str.includes('SES_UNCAUGHT_EXCEPTION') || str.includes('lockdown') || str === 'null') {
+          event.preventDefault();
+        }
       };
     })();
   </script>
