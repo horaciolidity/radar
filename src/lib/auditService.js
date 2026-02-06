@@ -1,103 +1,122 @@
 import { supabase } from './supabase';
+import { contractManager } from './contractManager'; // Helper to get providers
 
-// Mock AI Logic and Static Analysis Rules
-// In a real production app, this might call an external AI API (e.g., OpenAI)
-
+// ==========================================
+// 1. ADVANCED SECURITY RULES (SOURCE CODE)
+// ==========================================
 const analyzeSecurity = (code) => {
     const vulnerabilities = [];
+    const lines = code.split('\n');
 
-    // Reentrancy check
-    if (code.includes('.call{value:')) {
+    const addVuln = (id, title, severity, lineIdx, explanation, impact, rec) => {
         vulnerabilities.push({
-            id: 'v1',
-            title: 'Potential Reentrancy',
-            severity: 'CRITICAL',
-            startLine: 20,
-            endLine: 22, // In a real parser, we'd find actual lines
-            explanation: 'The contract uses call{value: ...} for transfers without a reentrancy guard or updating state before the external call.',
-            impact: 'An attacker can recursively call the withdraw function and drain contract funds.',
-            recommendation: 'Use nonReentrant guard or update the state (balances[msg.sender] = 0) BEFORE the external call.'
+            id, title, severity,
+            startLine: lineIdx + 1,
+            endLine: lineIdx + 1,
+            explanation, impact, recommendation: rec
         });
-    }
+    };
 
-    // Centralization check (Ownership)
-    if (code.includes('onlyOwner') || code.includes('require(msg.sender == owner)')) {
-        // Only classify as High Risk if it controls Minting or SelfDestruct
-        if (code.includes('mint') || code.includes('_mint')) {
-            vulnerabilities.push({
-                id: 'v2',
-                title: 'Centralized Minting',
-                severity: 'HIGH',
-                startLine: 1, // Placeholder
-                endLine: 1,
-                explanation: 'Contract allows the owner to mint tokens, potentially diluting supply.',
-                impact: 'Owner can manipulate token price by printing unlimited tokens.',
-                recommendation: 'Use a Multi-Sig wallet or remove minting capability after launch.'
-            });
-        } else {
-            vulnerabilities.push({
-                id: 'v2-info',
-                title: 'Centralization (Ownable)',
-                severity: 'LOW', // Downgraded from HIGH
-                startLine: 1,
-                endLine: 1,
-                explanation: 'Contract has privileged functions restricted to an owner.',
-                impact: 'Reliance on a single key for administrative actions.',
-                recommendation: 'Ensure owner is a secure wallet (Multisig/DAO).'
-            });
+    lines.forEach((line, i) => {
+        const content = line.trim();
+        if (content.startsWith('//') || content.startsWith('*')) return; // Skip comments
+
+        // --- CRITICAL/HIGH RISKS ---
+
+        // 1. Reentrancy (Basic)
+        if (content.includes('.call{value:') && !content.includes('nonReentrant')) {
+            addVuln('v-reent', 'Potential Reentrancy', 'CRITICAL', i,
+                'Low-level call used to transfer ETH without visible reentrancy guard.',
+                'Attackers can drain funds by recursively calling the function.',
+                'Use ReentrancyGuard or Check-Effects-Interactions pattern.');
         }
-    }
 
-    // Selfdestruct check
-    if (code.includes('selfdestruct')) {
-        vulnerabilities.push({
-            id: 'v3',
-            title: 'Unsafe Selfdestruct',
-            severity: 'HIGH',
-            startLine: 33,
-            endLine: 35,
-            explanation: 'Contract contains selfdestruct instruction which can permanently destroy the contract code and state.',
-            impact: 'Contract could be rendered inoperable, locking all funds or functionality.',
-            recommendation: 'Remove selfdestruct unless absolutely necessary for the protocol life cycle.'
-        });
-    }
+        // 2. Delegatecall (Unsafe External Logic)
+        if (content.includes('delegatecall')) {
+            addVuln('v-delegate', 'Unsafe Delegatecall', 'CRITICAL', i,
+                'Contract executes code from another address in its own context.',
+                'If the target address is malicious or mutable, it can destroy this contract.',
+                'Ensure the target is constant and trusted.');
+        }
+
+        // 3. Self Destruct
+        if (content.includes('selfdestruct')) {
+            addVuln('v-destruct', 'Self Destruct Capable', 'HIGH', i,
+                'Contract can destroy itself and burn its ether/code.',
+                'Users could lose all stuck funds or the protocol stops working.',
+                'Avoid unless strictly necessary for upgrades.');
+        }
+
+        // 4. Tx.Origin (Phishing)
+        if (content.includes('tx.origin')) {
+            addVuln('v-txorigin', 'Tx.Origin Authentication', 'HIGH', i,
+                'Using tx.origin for authorization is vulnerable to phishing.',
+                'A malicious contract can trick an admin into authorizing a transaction.',
+                'Use msg.sender instead.');
+        }
+
+        // --- MEDIUM RISKS ---
+
+        // 5. Weak Randomness
+        if ((content.includes('block.difficulty') || content.includes('block.timestamp') || content.includes('now')) && (content.includes('%') || content.includes('random'))) {
+            addVuln('v-random', 'Weak Randomness', 'MEDIUM', i,
+                'Using block attributes for randomness is predictable by miners.',
+                'Miners can manipulate the block to game the result.',
+                'Use Chainlink VRF or Commit-Reveal scheme.');
+        }
+
+        // 6. Unchecked Low Level Call
+        if (content.includes('.call(') && !content.includes('require') && !content.includes('if') && !content.includes('success')) {
+            addVuln('v-unchecked', 'Unchecked Low-Level Call', 'MEDIUM', i,
+                'Return value of .call is not checked.',
+                'If the call fails, execution continues silently, leading to inconsistent state.',
+                'Always check the boolean return value: (bool success, ) = ...');
+        }
+
+        // 7. Centralization (Owner)
+        if ((content.includes('onlyOwner') || content.includes('require(msg.sender == owner)')) && (content.includes('mint') || content.includes('withdraw'))) {
+            addVuln('v-central', 'Centralized Privileges', 'MEDIUM', i,
+                'Owner has direct control over critical functions (mint/withdraw).',
+                'Risk of rug-pull if owner key is compromised.',
+                'Use MultiSig or TimeLock.');
+        }
+    });
 
     return { vulnerabilities };
 };
 
-const simulateAIReview = (code, existing) => {
-    // Client-side Semantic Check (Heuristics)
-    // In the future, this could be replaced by a call to OpenAI/Claude API
-    const findings = [];
+// ==========================================
+// 2. BYTECODE ANALYSIS (UNVERIFIED CONTRACTS)
+// ==========================================
+const analyzeBytecode = (bytecode) => {
+    const vulns = [];
 
-    // Check for floating pragma
-    if (/pragma solidity \^/.test(code)) {
-        findings.push({
-            id: 'ai-pragma',
-            title: 'Floating Pragma',
-            severity: 'LOW',
-            startLine: 1,
-            endLine: 1,
-            explanation: 'Contract uses a floating pragma (e.g. ^0.8.0), which allows compiling with potentially unstable future compiler versions.',
-            impact: 'Risk of unexpected behavior if compiled with a buggy newer compiler version.',
-            recommendation: 'Lock the pragma version (e.g. pragma solidity 0.8.19;).'
+    // Check for SELFDESTRUCT opcode (0xff)
+    if (bytecode.includes('ff')) { // Simplified check, strictly need full disassembly but heuristic works often
+        vulns.push({
+            id: 'b-destruct', title: 'Self-Destruct Opcode Detected', severity: 'HIGH',
+            startLine: 1, endLine: 1,
+            explanation: 'The compiled bytecode contains the SELFDESTRUCT opcode (0xFF).',
+            impact: 'Contract can be destroyed.', recommendation: 'Verify source code to confirm safety.'
         });
     }
 
-    return findings;
+    // Check for DELEGATECALL (0xf4)
+    if (bytecode.includes('f4')) {
+        vulns.push({
+            id: 'b-delegate', title: 'Delegatecall Opcode Detected', severity: 'MEDIUM',
+            startLine: 1, endLine: 1,
+            explanation: 'The compiled bytecode contains DELEGATECALL (0xF4).',
+            impact: 'Contract relies on external logic.', recommendation: 'Verify source to ensure delegate target is safe.'
+        });
+    }
+
+    return vulns;
 };
 
-const calculateRiskScore = (vulns) => {
-    let score = 0;
-    vulns.forEach(v => {
-        if (v.severity === 'CRITICAL') score += 40;
-        else if (v.severity === 'HIGH') score += 25;
-        else if (v.severity === 'MEDIUM') score += 10;
-        else score += 5;
-    });
-    return Math.min(score, 100);
-};
-
+// ==========================================
+// 3. EXPLORER / NETWORK UTILS
+// ==========================================
 const EXPLORER_APIS = {
     'Ethereum': 'https://api.etherscan.io/api',
     'BSC': 'https://api.bscscan.com/api',
@@ -109,138 +128,130 @@ const EXPLORER_APIS = {
 
 const fetchSourceCode = async (address, network) => {
     const apiUrl = EXPLORER_APIS[network];
-    if (!apiUrl) {
-        console.warn(`No explorer API for ${network}`);
-        return null;
-    }
+    if (!apiUrl) return null;
 
     try {
-        // 1. Fetch Contract ABI/Source to check for Proxy or direct source
         const response = await fetch(`${apiUrl}?module=contract&action=getsourcecode&address=${address}`);
         const data = await response.json();
 
-        if (data.status !== '1' || !data.result || data.result.length === 0) {
-            console.warn(`[Audit] Fetch failed for ${address}:`, data.message);
-            return null;
-        }
+        if (data.status !== '1' || !data.result || data.result.length === 0) return null;
 
         const sourceInfo = data.result[0];
 
-        // 2. Check if it's a Proxy (Etherscan usually returns this field)
+        // Proxy Handling
         if (sourceInfo.Proxy === "1" && sourceInfo.Implementation && sourceInfo.Implementation !== address) {
-            console.log(`[Audit] Proxy detected for ${address}. Fetching implementation at ${sourceInfo.Implementation}...`);
-            // Recursive call to fetch the ACTUAL logic
-            // We append a comment header to indicate this happened
             const implSource = await fetchSourceCode(sourceInfo.Implementation, network);
             if (implSource) {
-                return `// *** PROXY DETECTED ***\n// Logical Address: ${sourceInfo.Implementation}\n// Proxy Address: ${address}\n\n` + implSource;
+                return `// *** PROXY DETECTED ***\n// Implementation: ${sourceInfo.Implementation}\n\n` + implSource;
             }
         }
 
-        // 3. Handle verified source code
         if (sourceInfo.SourceCode) {
-            // Handle "Unverified" explicit return (rare but possible in some states)
-            if (sourceInfo.SourceCode === '') return null;
-
-            // Etherscan sometimes wraps multiple files in double curly braces {{...}}
-            // Or returns a JSON object string for multi-part contracts
-            if (sourceInfo.SourceCode.startsWith('{')) {
+            // Clean result
+            let cleanCode = sourceInfo.SourceCode;
+            if (cleanCode.startsWith('{{')) {
                 try {
-                    let jsonContent = sourceInfo.SourceCode;
-                    // Clean up potential double curly braces {{ ... }}
-                    if (jsonContent.startsWith('{{') && jsonContent.endsWith('}}')) {
-                        jsonContent = jsonContent.slice(1, -1);
-                    }
-
-                    const parsed = JSON.parse(jsonContent);
-                    // Standard JSON input format
+                    const parsed = JSON.parse(cleanCode.slice(1, -1)); // Remove outer {}
                     if (parsed.sources) {
-                        return Object.entries(parsed.sources)
-                            .map(([path, content]) => `// =====================================\n// File: ${path}\n// =====================================\n\n${content.content}`)
+                        cleanCode = Object.entries(parsed.sources)
+                            .map(([key, val]) => `// File: ${key}\n\n${val.content}`)
                             .join('\n\n');
                     }
-                } catch (err) {
-                    console.warn("Failed to parse SourceCode JSON, attempting to return raw", err);
-                }
+                } catch (e) { /* ignore parse error */ }
             }
-            return sourceInfo.SourceCode;
+            return cleanCode;
         }
-
         return null;
     } catch (e) {
-        console.error("Failed to fetch source from explorer:", e);
+        console.warn("Explorer fetch failed", e);
         return null;
     }
 };
 
+// ==========================================
+// 4. MAIN SERVICE EXPORT
+// ==========================================
 export const auditService = {
     async performAudit({ address, network, code: manualCode }) {
         try {
             let sourceCode = manualCode;
-            let name = 'Pasted Code';
+            let name = 'Audit Report';
+            let isUnverified = false;
+            let combinedVulnerabilities = [];
 
-            if (address && network && !manualCode) {
+            // Case 1: Manual Code Paste
+            if (!address && manualCode) {
+                name = 'Manual Analysis';
+                const analysis = analyzeSecurity(manualCode);
+                combinedVulnerabilities = analysis.vulnerabilities;
+            }
+
+            // Case 2: Address Search
+            else if (address && network) {
+                // A. Try to fetch Source Code
                 sourceCode = await fetchSourceCode(address, network);
-                if (sourceCode) {
-                    name = `Audit for ${address.slice(0, 10)}...`;
-                } else {
-                    // Fallback if not verified
-                    name = `Unverified: ${address.slice(0, 10)}...`;
-                    sourceCode = "// Contract source code not verified on explorer.\n// To audit this contract, please verify it on the block explorer first\n// or paste the source code manually.";
 
-                    // We can't really analyze text that doesn't exist, so this will yield 0 vulns
-                    // maybe we should throw?
+                if (sourceCode) {
+                    name = `Audit: ${address.slice(0, 8)}... (${network})`;
+                    const analysis = analyzeSecurity(sourceCode);
+                    combinedVulnerabilities = analysis.vulnerabilities;
+                } else {
+                    // B. Fallback to Bytecode Analysis (Unverified)
+                    isUnverified = true;
+                    name = `UNVERIFIED: ${address.slice(0, 8)}...`;
+
+                    try {
+                        const provider = contractManager.getProvider(network);
+                        if (provider) {
+                            sourceCode = await provider.getCode(address);
+                            if (sourceCode === '0x') throw new Error("Contract does not exist");
+
+                            // Analyze Bytecode
+                            combinedVulnerabilities = analyzeBytecode(sourceCode);
+
+                            // Prepare display for the viewer
+                            sourceCode = `// ⚠️ CONTRACT SOURCE CODE NOT VERIFIED\n// ⚠️ DISPLAYING RAW BYTECODE ANALYSIS\n\n// Address: ${address}\n// Network: ${network}\n\n` +
+                                `// Analysis Findings:\n` +
+                                (combinedVulnerabilities.length > 0 ? combinedVulnerabilities.map(v => `// - [${v.severity}] ${v.title}`).join('\n') : '// - No obvious bytecode hazards found (ff/f4)') +
+                                `\n\n// Raw Bytecode:\n` + sourceCode;
+                        } else {
+                            throw new Error("Could not connect to network provider");
+                        }
+                    } catch (err) {
+                        throw new Error(`Analysis failed: ${err.message}`);
+                    }
                 }
             }
 
-            if (!sourceCode) {
-                throw new Error("No source code found or provided");
-            }
-
-            // Run Security Analysis
-            const analysis = analyzeSecurity(sourceCode);
-
-            // AI Semantic review simulation
-            const aiReview = simulateAIReview(sourceCode, analysis.vulnerabilities);
-
-            const combinedVulnerabilities = [...analysis.vulnerabilities, ...aiReview];
-            const riskScore = calculateRiskScore(combinedVulnerabilities);
+            // Calculate Score
+            let riskScore = 0;
+            combinedVulnerabilities.forEach(v => {
+                if (v.severity === 'CRITICAL') riskScore += 40;
+                else if (v.severity === 'HIGH') riskScore += 25;
+                else if (v.severity === 'MEDIUM') riskScore += 10;
+                else riskScore += 2;
+            });
+            riskScore = Math.min(riskScore, 100);
 
             const auditData = {
-                name,
-                address,
-                network,
+                name, address, network,
                 code: sourceCode,
                 riskScore,
                 vulnerabilities: combinedVulnerabilities,
                 created_at: new Date().toISOString()
             };
 
-            // Save to Supabase
-            // Note: This relies on the "Allow public insert" RLS policy being enabled
-            const { data, error } = await supabase
+            // Save to DB
+            const { error } = await supabase
                 .from('contract_audits')
-                .insert([
-                    {
-                        address,
-                        network,
-                        code_content: sourceCode,
-                        result: auditData,
-                        risk_score: riskScore
-                    }
-                ])
-                .select();
+                .insert([{
+                    address, network, code_content: sourceCode,
+                    result: auditData, risk_score: riskScore
+                }]);
 
-            if (error) {
-                console.error("Supabase insert error:", error);
-                // We might still want to return the result even if save fails, but let's throw for now to be distinct
-                // throw error; 
-            }
+            if (error) console.error("DB Save failed", error);
 
-            return {
-                success: true,
-                audit: auditData // Return the data we just generated/saved
-            };
+            return { success: true, audit: auditData };
 
         } catch (error) {
             console.error("Audit Service Failed:", error);
