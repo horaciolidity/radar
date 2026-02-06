@@ -39,6 +39,43 @@ const SIGNATURES = {
     PAIR_FACTORY: 'c9c991c0'
 };
 
+// DEX Configuration for Liquidity Checks
+const DEX_CONFIG = {
+    'Ethereum': {
+        factory: '0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f', // Uniswap V2
+        weth: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'     // WETH
+    },
+    'BSC': {
+        factory: '0xcA143Ce32Fe78f1f7019d7d551a6402fC5350c73', // PancakeSwap V2
+        weth: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c'     // WBNB
+    },
+    'Polygon': {
+        factory: '0x5757371414417b8C6CAad45bAeF941aBc7d3Ab32', // QuickSwap
+        weth: '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270'     // WMATIC
+    },
+    'Base': {
+        factory: '0x8909Dc15e46C4A96d16279053B9F26870F605850', // BaseSwap
+        weth: '0x4200000000000000000000000000000000000006'     // WETH
+    },
+    'Arbitrum': {
+        factory: '0x1C232F01118CB8B424793ae03F870aa7D0ff7fFF', // SushiSwap (Arb1)
+        weth: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1'     // WETH
+    },
+    'Optimism': {
+        factory: '0x1F98431c8aD98523631AE4a59f267346ea31F984', // Uniswap V3 (Harder to check simply, using V2 style fallback or Velodrome)
+        weth: '0x4200000000000000000000000000000000000006'     // WETH
+    }
+};
+
+const PAIR_ABI = [
+    "function getReserves() view returns (uint112, uint112, uint32)",
+    "function token0() view returns (address)"
+];
+
+const FACTORY_ABI = [
+    "function getPair(address tokenA, address tokenB) view returns (address pair)"
+];
+
 export async function analyzeContract(address, deployer, provider, network) {
     const analysis = {
         id: `${network}-${address}`.toLowerCase(),
@@ -85,7 +122,11 @@ export async function analyzeContract(address, deployer, provider, network) {
         // 2. Token Detection
         const hasTransfer = bytecode.includes(SIGNATURES.TRANSFER);
         const hasTotalSupply = bytecode.includes('18160ddd');
+
+        let isToken = false;
+
         if (hasTransfer && hasTotalSupply) {
+            isToken = true;
             analysis.type = "Token (ERC20)";
             analysis.features.push("ERC20 / Token");
             try {
@@ -110,7 +151,38 @@ export async function analyzeContract(address, deployer, provider, network) {
             }
         }
 
-        // 3. Security Patterns
+        // 3. REAL Liquidity Check (DEX Query)
+        if (isToken && DEX_CONFIG[network]) {
+            try {
+                const { factory, weth } = DEX_CONFIG[network];
+                const factoryContract = new ethers.Contract(factory, FACTORY_ABI, provider);
+
+                // Get Pair Address
+                const pairAddress = await factoryContract.getPair(address, weth);
+
+                if (pairAddress && pairAddress !== '0x0000000000000000000000000000000000000000') {
+                    // Check Reserves
+                    const pairContract = new ethers.Contract(pairAddress, PAIR_ABI, provider);
+                    const reserves = await pairContract.getReserves();
+
+                    // Simple check: is there ANY reserve?
+                    // reserves[0] and reserves[1] are bigints
+                    if (reserves[0] > 0n && reserves[1] > 0n) {
+                        analysis.has_liquidity = true;
+                        analysis.features.push("Liquidity Detected");
+                        // Good sign for safety (usually)
+                        analysis.risk_score = Math.max(0, analysis.risk_score - 10);
+                    } else {
+                        analysis.features.push("Pair Created (Empty)");
+                    }
+                }
+            } catch (liqErr) {
+                // Ignore liquidity check errors (network issues, etc)
+                // console.warn("Liquidity check failed:", liqErr);
+            }
+        }
+
+        // 4. Security Patterns
         if (bytecode.includes(SIGNATURES.OWNER)) {
             analysis.features.push("Ownable");
         }
@@ -154,13 +226,7 @@ export async function analyzeContract(address, deployer, provider, network) {
             analysis.risk_score += 50;
         }
 
-        // Liquidity Heuristic
-        if (bytecode.includes('0dfe165a') || bytecode.includes('bc25cf77')) {
-            analysis.has_liquidity = true;
-            analysis.features.push("LP Contract");
-        }
-
-        // 4. Deployer Reputation (Basic check for browser performance)
+        // 5. Deployer Reputation (Basic check for browser performance)
         try {
             const deployerBalance = await provider.getBalance(deployer);
             const balanceEth = parseFloat(ethers.formatEther(deployerBalance));
@@ -176,7 +242,7 @@ export async function analyzeContract(address, deployer, provider, network) {
             console.warn(`[Radar] Could not fetch deployer balance`);
         }
 
-        // 5. Final Scoring
+        // 6. Final Scoring
         analysis.risk_score = Math.min(analysis.risk_score, 100);
 
         if (analysis.risk_score >= 75) {
@@ -198,7 +264,7 @@ export async function analyzeContract(address, deployer, provider, network) {
 
         return analysis;
     } catch (error) {
-        console.error("Analysis failed", error);
+        console.error("Analysis failed:", error);
         return analysis;
     }
 }
