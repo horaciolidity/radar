@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { indexer } from './indexer.js';
@@ -127,11 +128,64 @@ app.get('/api/contracts', async (req, res) => {
     }
 });
 
+import { GoogleGenerativeAI } from '@google/generative-ai';
+
 // Resume previous scans
 const state = indexer.getStatus();
 Object.keys(state.activeScans).forEach(network => {
     if (state.activeScans[network]) {
         indexer.startScanning(network);
+    }
+});
+
+// AI Integration
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || 'noclavetodavia');
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+app.post('/api/generate-exploit', async (req, res) => {
+    const { prompt } = req.body;
+    try {
+        if (!process.env.GEMINI_API_KEY) {
+            return res.status(500).json({ success: false, error: "Server missing GEMINI_API_KEY" });
+        }
+
+        console.log("Generating exploit with Gemini...");
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const text = response.text();
+
+        // Extract JSON from potential markdown blocks
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) throw new Error("No JSON found in AI response");
+
+        const json = JSON.parse(jsonMatch[0]);
+        res.json({ success: true, exploit: json });
+    } catch (e) {
+        console.error("AI Generation Error:", e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+app.post('/api/verify-exploit', async (req, res) => {
+    const { prompt } = req.body;
+    try {
+        if (!process.env.GEMINI_API_KEY) {
+            return res.status(500).json({ success: false, error: "Server missing GEMINI_API_KEY" });
+        }
+
+        console.log("Verifying exploit with Gemini...");
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const text = response.text();
+
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) throw new Error("No JSON found in AI response");
+
+        const json = JSON.parse(jsonMatch[0]);
+        res.json(json);
+    } catch (e) {
+        console.error("AI Verification Error:", e);
+        res.status(500).json({ success: false, error: e.message });
     }
 });
 

