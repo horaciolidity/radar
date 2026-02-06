@@ -6,7 +6,8 @@ import { contractManager } from './contractManager'; // Helper to get providers
 // ==========================================
 const analyzeSecurity = (code) => {
     const vulnerabilities = [];
-    const lines = code.split('\n');
+    // Normalize code for easier matching (remove excessive whitespace)
+    const normalizedCode = code.replace(/\r/g, '').split('\n');
 
     const addVuln = (id, title, severity, lineIdx, explanation, impact, rec) => {
         vulnerabilities.push({
@@ -17,68 +18,116 @@ const analyzeSecurity = (code) => {
         });
     };
 
-    lines.forEach((line, i) => {
+    normalizedCode.forEach((line, i) => {
         const content = line.trim();
-        if (content.startsWith('//') || content.startsWith('*')) return; // Skip comments
+        const lowerContent = content.toLowerCase();
 
-        // --- CRITICAL/HIGH RISKS ---
+        if (content.startsWith('//') || content.startsWith('*') || content.startsWith('/*')) return;
 
-        // 1. Reentrancy (Basic)
-        if (content.includes('.call{value:') && !content.includes('nonReentrant')) {
-            addVuln('v-reent', 'Potential Reentrancy', 'CRITICAL', i,
-                'Low-level call used to transfer ETH without visible reentrancy guard.',
-                'Attackers can drain funds by recursively calling the function.',
-                'Use ReentrancyGuard or Check-Effects-Interactions pattern.');
+        // -----------------------------
+        // A. CRITICAL SCAM PATTERNS
+        // -----------------------------
+
+        // 1. Honeypot: Restricted Transfer (Generic restrictive logic)
+        if (
+            (lowerContent.includes('require') || lowerContent.includes('revert')) &&
+            (lowerContent.includes('tradingopen') || lowerContent.includes('allowed') || lowerContent.includes('blacklist') || lowerContent.includes('isbot')) &&
+            !lowerContent.includes('owner')
+        ) {
+            addVuln('v-honey-1', 'Potential Honeypot Logic', 'CRITICAL', i,
+                'Transfer appears conditionally restricted based on custom flags (tradingOpen, isBot, etc).',
+                'Users might be unable to sell if the owner disables trading or blacklists them.',
+                'Verify these restrictions cannot be abused to lock funds.');
         }
 
-        // 2. Delegatecall (Unsafe External Logic)
+        // 2. Hidden Mint / Balance Manipulation
+        if (
+            (lowerContent.includes('test') || lowerContent.includes('setbalance') || lowerContent.includes('addlog') || lowerContent.includes('swapandliquify')) &&
+            (lowerContent.includes('+=') || lowerContent.includes('=')) &&
+            lowerContent.includes('balance') &&
+            !lowerContent.includes('emit')
+        ) {
+            // Heuristic: Strange balance updates outside standard transfer
+            if (lowerContent.includes('_balances[sender] =') || lowerContent.includes('_basictransfer')) {
+                addVuln('v-fake-mint', 'Non-Standard Balance Update', 'HIGH', i,
+                    'Balances are being modified in a non-standard way.',
+                    'Risk of hidden minting or balance spoofing.',
+                    'Ensure strictly standard ERC20 transfer logic.');
+            }
+        }
+
+        // -----------------------------
+        // B. DANGEROUS PERMISSIONS
+        // -----------------------------
+
+        // 3. Blacklist Capabilities
+        if (lowerContent.includes('blacklist') || lowerContent.includes('bot') || lowerContent.includes('antisniper')) {
+            if (lowerContent.includes('mapping')) {
+                addVuln('v-blacklist', 'Blacklist Mechanism', 'HIGH', i,
+                    'Contract contains a blacklist/bot mapping.',
+                    'Owner can arbitrarily block addresses from trading.',
+                    'Centralized control over user assets.');
+            }
+        }
+
+        // 4. Fee Manipulation (High Tax)
+        if ((lowerContent.includes('setfee') || lowerContent.includes('settax') || lowerContent.includes('updatefees')) && lowerContent.includes('function')) {
+            addVuln('v-fees', 'Mutable Feerate', 'MEDIUM', i,
+                'Owner can change the tax/fee rate.',
+                'Owner could set fees to 100% (Honeypot).',
+                'Ensure there is a hard cap (e.g. max 25%) in the code.');
+        }
+
+        // 5. Max Transaction / Wallet Limits
+        if ((lowerContent.includes('maxtextamount') || lowerContent.includes('maxwallet') || lowerContent.includes('_maxtxamount')) && (lowerContent.includes('set') || lowerContent.includes('update'))) {
+            addVuln('v-limits', 'Mutable Transaction Limits', 'MEDIUM', i,
+                'Owner can change max transaction or wallet limits.',
+                'Can be used to effectively stop trading (set limit to 0).',
+                'Check for lower bounds (MIN keys).');
+        }
+
+        // -----------------------------
+        // C. TECHNICAL VULNERABILITIES
+        // -----------------------------
+
+        // 6. Reentrancy
+        if (content.includes('.call{value:') && !lowerContent.includes('nonreentrant')) {
+            addVuln('v-reent', 'Potential Reentrancy', 'CRITICAL', i,
+                'Low-level call used to transfer ETH without reentrancy guard.',
+                'Attackers can drain funds by recursively calling.',
+                'Use ReentrancyGuard/nonReentrant.');
+        }
+
+        // 7. Delegatecall
         if (content.includes('delegatecall')) {
             addVuln('v-delegate', 'Unsafe Delegatecall', 'CRITICAL', i,
-                'Contract executes code from another address in its own context.',
-                'If the target address is malicious or mutable, it can destroy this contract.',
-                'Ensure the target is constant and trusted.');
+                'Contract executes code from another address.',
+                'If target is malicious, contract can be destroyed.',
+                'Verify target trust.');
         }
 
-        // 3. Self Destruct
+        // 8. Self Destruct
         if (content.includes('selfdestruct')) {
-            addVuln('v-destruct', 'Self Destruct Capable', 'HIGH', i,
-                'Contract can destroy itself and burn its ether/code.',
-                'Users could lose all stuck funds or the protocol stops working.',
-                'Avoid unless strictly necessary for upgrades.');
+            addVuln('v-destruct', 'Self Destruct', 'HIGH', i,
+                'Can verify destroy contract.',
+                'Rug pull risk.',
+                'Remove unless necessary.');
         }
 
-        // 4. Tx.Origin (Phishing)
+        // 9. Weak Randomness
+        if ((content.includes('block.difficulty') || content.includes('block.timestamp')) && (content.includes('%'))) {
+            addVuln('v-random', 'Weak Randomness', 'LOW', i,
+                'Using block attributes for RNG.',
+                'Miners can manipulate result.',
+                'Use Chainlink VRF.');
+        }
+
+        // 10. Tx.Origin
         if (content.includes('tx.origin')) {
-            addVuln('v-txorigin', 'Tx.Origin Authentication', 'HIGH', i,
-                'Using tx.origin for authorization is vulnerable to phishing.',
-                'A malicious contract can trick an admin into authorizing a transaction.',
-                'Use msg.sender instead.');
-        }
-
-        // --- MEDIUM RISKS ---
-
-        // 5. Weak Randomness
-        if ((content.includes('block.difficulty') || content.includes('block.timestamp') || content.includes('now')) && (content.includes('%') || content.includes('random'))) {
-            addVuln('v-random', 'Weak Randomness', 'MEDIUM', i,
-                'Using block attributes for randomness is predictable by miners.',
-                'Miners can manipulate the block to game the result.',
-                'Use Chainlink VRF or Commit-Reveal scheme.');
-        }
-
-        // 6. Unchecked Low Level Call
-        if (content.includes('.call(') && !content.includes('require') && !content.includes('if') && !content.includes('success')) {
-            addVuln('v-unchecked', 'Unchecked Low-Level Call', 'MEDIUM', i,
-                'Return value of .call is not checked.',
-                'If the call fails, execution continues silently, leading to inconsistent state.',
-                'Always check the boolean return value: (bool success, ) = ...');
-        }
-
-        // 7. Centralization (Owner)
-        if ((content.includes('onlyOwner') || content.includes('require(msg.sender == owner)')) && (content.includes('mint') || content.includes('withdraw'))) {
-            addVuln('v-central', 'Centralized Privileges', 'MEDIUM', i,
-                'Owner has direct control over critical functions (mint/withdraw).',
-                'Risk of rug-pull if owner key is compromised.',
-                'Use MultiSig or TimeLock.');
+            addVuln('v-txorigin', 'Tx.Origin Phishing', 'MEDIUM', i,
+                'Authorization using tx.origin.',
+                'Phishing risk.',
+                'Use msg.sender.');
         }
     });
 
