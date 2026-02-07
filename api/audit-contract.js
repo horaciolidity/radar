@@ -51,7 +51,10 @@ export default async function handler(req) {
                     body: JSON.stringify({
                         model: "llama-3.3-70b-versatile",
                         messages: [
-                            { role: "system", content: "You are an enterprise-grade smart contract auditor. Output JSON ONLY." },
+                            {
+                                role: "system",
+                                content: "Actúa EXCLUSIVAMENTE como un Auditor de Seguridad Smart Contracts senior (OpenZeppelin, Trail of Bits, Spearbit). La CONSISTENCIA y la VERACIDAD son prioritarias. No inventes vulnerabilidades. Output VALID JSON ONLY siguiendo las fases de auditoría proporcionadas."
+                            },
                             { role: "user", content: prompt }
                         ],
                         response_format: { type: "json_object" }
