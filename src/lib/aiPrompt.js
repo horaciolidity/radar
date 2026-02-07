@@ -33,11 +33,27 @@ METODOLOGÍA DE ANÁLISIS OFENSIVO
    - MEDIUM/LOW (Centralization): Fondos en riesgo si el Admin es malicioso o comprometido.
 
 ────────────────────────────────────────────────────────────
+REGLA DE SCORING PROFESIONAL (OBLIGATORIA)
+────────────────────────────────────────────────────────────
+El Security Rating (riskScore) sigue una escala lógica de riesgo real:
+
+1. ESCALA BASE:
+   - Contrato sin bugs técnicos (solo riesgos de confianza) -> Base Score = 70/100.
+2. PENALIZACIONES (Solo si aplica):
+   - Admin es una EOA (External Account): -10 puntos.
+   - Admin es Multisig: -5 puntos.
+   - Sin Timelock configurado: -5 puntos.
+   - Documentación pobre o nula: -5 puntos.
+3. LÍMITE INFERIOR DE CONFIANZA:
+   - Mínimo permitido para contratos sin bugs técnicos: 50/100.
+   - PROHIBIDO asignar score < 50 si no existe un exploit real confirmado para terceros.
+
+────────────────────────────────────────────────────────────
 OUTPUT: JSON ESTRICTO
 ────────────────────────────────────────────────────────────
 {
   "summary": {
-    "riskScore": 0-100,
+    "riskScore": 0-100 (Sigue la REGLA DE SCORING: 100 es Seguro, <50 es Explotaible),
     "critical": number,
     "high": number,
     "medium": number,
