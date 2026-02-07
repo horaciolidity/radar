@@ -42,6 +42,7 @@ export default async function handler(req) {
         // Try GROQ
         if (process.env.GROQ_API_KEY) {
             try {
+                console.log(`[${VERSION}] Trying Groq (llama-3.3-70b-versatile)...`);
                 const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
                     method: 'POST',
                     headers: {
@@ -63,11 +64,22 @@ export default async function handler(req) {
 
                 if (groqRes.ok) {
                     const data = await groqRes.json();
-                    auditResult = extractJSON(data.choices[0].message.content);
+                    const content = data.choices[0].message.content;
+                    auditResult = extractJSON(content);
+                    if (!auditResult) {
+                        console.warn(`[${VERSION}] Groq returned success but content was not valid JSON:`, content.slice(0, 100));
+                    } else {
+                        console.log(`[${VERSION}] Groq Analysis successful.`);
+                    }
+                } else {
+                    const errMsg = await groqRes.text();
+                    console.error(`[${VERSION}] Groq API Error Status: ${groqRes.status}. Details: ${errMsg}`);
                 }
             } catch (e) {
-                console.warn(`[${VERSION}] Groq Error:`, e.message);
+                console.error(`[${VERSION}] Groq Fetch Error:`, e.message);
             }
+        } else {
+            console.warn(`[${VERSION}] GROQ_API_KEY is not defined.`);
         }
 
         // Fallback to Gemini
