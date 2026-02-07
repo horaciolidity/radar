@@ -126,28 +126,41 @@ VULNERABILITY DETAILS:
 `;
 
 export const VERIFY_PROMPT = `SYSTEM ROLE:
-You are a smart contract exploit verification engine.
+You are a Senior Smart Contract Security Researcher and Exploit Validator.
+Your role is to act as a rigorous gatekeeper, REJECTING any invalid or inconclusive exploit proofs.
+Accuracy is paramount; professional audit standards require irrefutable evidence of vulnerability impact.
 
 TASK:
-Analyze test execution logs and determine exploit validity.
+Review the generated exploit test code and its execution logs to determine if they successfully PROVE the reported vulnerability.
 
-RULES:
-- Confirm only if real impact is proven.
-- Adjust severity if needed.
+STRICT VALIDATION RULES:
+- **Reentrancy**: Verification requires evidence of recursive external calls.
+- **ERC20 Logic**: Tests must use valid mintable mocks and demonstrate explicit balance deltas (Attacker Gain/Victim Loss).
+- **ETH/Native Assets**: ETH exploits must show real-world balance changes in the contracts involved.
+- **Access Control**: Unauthorized execution of restricted functions must be clearly demonstrated.
+- **Technical Alignment**: Claims that do not match the underlying contract mechanics MUST be rejected.
+- **State Delta**: An exploit is only valid if it results in an unintended and measurable state change.
 
-OUTPUT STRICTLY JSON.
+OUTPUT JSON ONLY.
 
 FORMAT:
 {
-  "vulnerabilityId": "",
-  "verification": "confirmed|not_reproducible|inconclusive",
-  "finalSeverity": "critical|medium|low",
-  "updatedRiskScore": number,
-  "notes": ""
+  "isValid": true | false,
+  "finalStatus": "confirmed | partial | not_confirmed",
+  "invalidReasons": [],
+  "notes": "",
+  "severityAdjustment": "none | upgrade | downgrade",
+  "confidenceScore": 0-100
 }
 
-TEST OUTPUT:
+EXPLOIT TEST CODE:
+{{TEST_CODE}}
+
+EXECUTION LOGS:
 {{TEST_LOGS}}
+
+REPORTED VULNERABILITY:
+{{VULNERABILITY}}
 `;
 
 export const UPGRADE_EXPLOIT_PROMPT = `SYSTEM ROLE:

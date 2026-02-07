@@ -302,9 +302,11 @@ export const auditService = {
         }
     },
 
-    async verifyExploit(vulnerabilityId, testLogs) {
+    async verifyExploit(vulnerabilityId, testLogs, testCode, vulnerability) {
         const prompt = VERIFY_PROMPT
-            .replace('{{TEST_LOGS}}', testLogs);
+            .replace('{{TEST_LOGS}}', testLogs)
+            .replace('{{TEST_CODE}}', testCode || '// No test code provided')
+            .replace('{{VULNERABILITY}}', JSON.stringify(vulnerability, null, 2));
 
         console.log("Verifying exploit with prompt length:", prompt.length);
 
