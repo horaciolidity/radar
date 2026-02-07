@@ -130,3 +130,50 @@ FORMAT:
 TEST OUTPUT:
 {{TEST_LOGS}}
 `;
+
+export const UPGRADE_EXPLOIT_PROMPT = `SYSTEM ROLE:
+You are a smart contract security engineer specializing in
+fixing and upgrading exploit verification tests.
+
+You are given:
+- An existing exploit test written in Foundry
+- The related smart contract context
+- The exploit is already considered "confirmed", but the test may be incomplete or incorrect
+
+TASK:
+Analyze the provided test and FIX it to meet professional audit standards.
+
+REQUIREMENTS:
+1. Detect and correct logical errors in assertions.
+2. Ensure economic impact is correctly verified:
+   - Attacker balance MUST increase
+   - Victim balance MUST decrease
+3. If the exploit involves value or fund movement:
+   - Add an ERC20-based exploit test (if not already correct)
+   - Add a native ETH exploit test if applicable
+4. Separate tests clearly:
+   - testExploit_ERC20()
+   - testExploit_ETH() (only if ETH is involved)
+5. Use Foundry best practices:
+   - vm.deal for ETH funding
+   - balanceOf for ERC20
+   - assertGt / assertLt
+6. Do NOT remove existing tests unless they are invalid — upgrade them instead.
+7. Tests must:
+   - Be deterministic
+   - Run locally only
+   - Fail if the vulnerability is patched
+
+OUTPUT RULES:
+- Output ONLY corrected Solidity test code.
+- Do NOT include explanations.
+- Do NOT include markdown.
+- Do NOT include JSON.
+- The output must be directly usable in Foundry.
+
+INPUT EXPLOIT TEST:
+{{TEST_CODE}}
+
+RELATED CONTRACTS (if needed):
+{{CONTRACT_CODE}}
+`;

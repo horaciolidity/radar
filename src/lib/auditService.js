@@ -249,7 +249,7 @@ const fetchSourceCode = async (address, network) => {
 // ==========================================
 // 4. MAIN SERVICE EXPORT
 // ==========================================
-import { AUDIT_PROMPT, EXPLOIT_PROMPT, VERIFY_PROMPT } from './aiPrompt';
+import { AUDIT_PROMPT, EXPLOIT_PROMPT, VERIFY_PROMPT, UPGRADE_EXPLOIT_PROMPT } from './aiPrompt';
 
 export const auditService = {
     // OpenAI/Anthropic Integration Placeholder
@@ -330,6 +330,34 @@ export const auditService = {
                 updatedRiskScore: 0,
                 notes: "AI Verification service unavailable: " + error.message
             };
+        }
+    },
+
+    async upgradeExploit(testCode, contractCode) {
+        // Construct the prompt with the specific test and contract context
+        const prompt = UPGRADE_EXPLOIT_PROMPT
+            .replace('{{TEST_CODE}}', testCode)
+            .replace('{{CONTRACT_CODE}}', contractCode || 'No contract code provided');
+
+        console.log("Upgrading exploit with prompt length:", prompt.length);
+
+        try {
+            const response = await fetch('/api/upgrade-exploit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt })
+            });
+
+            const data = await response.json();
+
+            if (!data.success) {
+                throw new Error(data.error || "Failed to upgrade exploit");
+            }
+
+            return { success: true, code: data.code };
+        } catch (error) {
+            console.error("Exploit upgrade error:", error);
+            return { success: false, error: error.message };
         }
     },
 
