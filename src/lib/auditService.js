@@ -364,104 +364,66 @@ export const auditService = {
     },
 
     async performAudit({ address, network, code: manualCode }) {
+        let sourceCode = manualCode;
+        let name = 'Audit Report';
+
         try {
-            let sourceCode = manualCode;
-            let name = 'Audit Report';
-            let combinedFindings = [];
-
-            // Case 1: Manual Code Paste
-            if (!address && manualCode) {
-                name = 'Manual Analysis';
-                const analysis = analyzeSecurity(manualCode);
-                combinedFindings = analysis.findings;
-            }
-
-            // Case 2: Address Search
-            else if (address && network) {
-                // A. Try to fetch Source Code
+            // 1. Fetch Source Code if address provided
+            if (address && network) {
                 sourceCode = await fetchSourceCode(address, network);
+                name = `Audit: ${address.slice(0, 8)}... (${network})`;
 
-                if (sourceCode) {
-                    name = `Audit: ${address.slice(0, 8)}... (${network})`;
-                    const analysis = analyzeSecurity(sourceCode);
-                    combinedFindings = analysis.findings;
-                } else {
-                    // B. Fallback to Bytecode Analysis (Unverified)
-                    name = `UNVERIFIED: ${address.slice(0, 8)}...`;
-
-                    try {
-                        const provider = contractManager.getProvider(network);
-                        if (provider) {
-                            sourceCode = await provider.getCode(address);
-                            if (sourceCode === '0x') throw new Error("Contract does not exist");
-
-                            // Analyze Bytecode
-                            combinedFindings = analyzeBytecode(sourceCode);
-
-                            // Prepare display for the viewer
-                            sourceCode = `// ⚠️ CONTRACT SOURCE CODE NOT VERIFIED\n// ⚠️ DISPLAYING RAW BYTECODE ANALYSIS\n\n// Address: ${address}\n// Network: ${network}\n\n` +
-                                `// Analysis Findings:\n` +
-                                (combinedFindings.length > 0 ? combinedFindings.map(v => `// - [${v.severity}] ${v.title}`).join('\n') : '// - No obvious bytecode hazards found (ff/f4)') +
-                                `\n\n// Raw Bytecode:\n` + sourceCode;
-                        } else {
-                            throw new Error("Could not connect to network provider");
+                if (!sourceCode) {
+                    // Fallback to Bytecode Analysis
+                    const provider = contractManager.getProvider(network);
+                    if (provider) {
+                        const bytecode = await provider.getCode(address);
+                        if (bytecode !== '0x') {
+                            const findings = analyzeBytecode(bytecode);
+                            return {
+                                success: true,
+                                audit: {
+                                    name: `UNVERIFIED: ${address.slice(0, 8)}...`,
+                                    address, network,
+                                    code: `// BYTECODE ANALYSIS ONLY\n${bytecode}`,
+                                    summary: { riskScore: findings.length * 20, critical: 0, medium: findings.length, low: 0 },
+                                    findings
+                                }
+                            };
                         }
-                    } catch (err) {
-                        throw new Error(`Analysis failed: ${err.message}`);
                     }
                 }
             }
 
-            // Calculate Summary
-            let critical = 0, medium = 0, low = 0;
-            let score = 0;
+            if (!sourceCode) throw new Error("No source code available for analysis");
 
-            combinedFindings.forEach(v => {
-                if (v.severity === 'critical') {
-                    critical++;
-                    score += 40;
-                } else if (v.severity === 'medium') {
-                    medium++;
-                    score += 20;
-                } else if (v.severity === 'low') {
-                    low++;
-                    score += 5;
-                }
+            // 2. RUN ENTERPRISE AI AUDIT via API
+            const prompt = AUDIT_PROMPT.replace('{{CODE}}', sourceCode);
+
+            const response = await fetch('/api/audit-contract', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ address, network, code: sourceCode, prompt })
             });
 
-            const riskScore = Math.min(score, 100);
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error);
 
-            const summary = {
-                riskScore,
-                critical,
-                medium,
-                low
-            };
-
-            const auditData = {
-                name, address, network,
-                code: sourceCode,
-                summary,
-                findings: combinedFindings,
-                created_at: new Date().toISOString()
-            };
-
-            // Save to DB
-            const { error } = await supabase
-                .from('contract_audits')
-                .insert([{
-                    address, network, code_content: sourceCode,
-                    result: auditData, risk_score: riskScore
-                }]);
-
-            if (error) console.error("DB Save failed", error);
-
-            return { success: true, audit: auditData };
+            return data;
 
         } catch (error) {
             console.error("Audit Service Failed:", error);
+            // Local Fallback on failure
+            const localFindings = analyzeSecurity(sourceCode || '');
             return {
-                success: false,
+                success: true,
+                audit: {
+                    name: 'Audit (Local Fallback)',
+                    address, network,
+                    code: sourceCode,
+                    findings: localFindings.findings,
+                    summary: { riskScore: 50, critical: 0, medium: localFindings.findings.length, low: 0 }
+                },
                 error: error.message
             };
         }
