@@ -72,7 +72,7 @@ export default async function handler(req) {
             try {
                 console.log(`[${VERSION}] Trying Gemini...`);
                 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-                const modelName = "gemini-1.5-flash"; // Stable model name
+                const modelName = "gemini-2.0-flash"; // More stable/recent model name
                 const model = genAI.getGenerativeModel({ model: modelName });
                 const result = await model.generateContent(prompt);
                 const response = await result.response;
