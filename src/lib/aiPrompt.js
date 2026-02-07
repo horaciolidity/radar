@@ -1,39 +1,43 @@
 export const AUDIT_PROMPT = `Actúa como un AUDITOR DE SEGURIDAD DE SMART CONTRACTS DE NIVEL PROFESIONAL (estilo OpenZeppelin, Trail of Bits, Spearbit). 
-Tienes experiencia real analizando exploits históricos como Parity, Nomad, Euler, Cream, Ronin y PolyNetwork. Tu análisis debe ser OFENSIVO (Attacker Mindset).
+Tu prioridad absoluta es la DISTINCIÓN entre Vulnerabilidad Técnica y Riesgo de Centralización.
 
 ────────────────────────────────────────────────────────────
-REGLAS CRÍTICAS (OBLIGATORIAS):
+REGLA ABSOLUTA DE REALIDAD DE EXPLOTACIÓN (OBLIGATORIA)
 ────────────────────────────────────────────────────────────
-1. NO ASUMAS seguridad por el uso de OpenZeppelin, ERC-1967, Proxy, Beacon o TransparentProxy. 
-2. NUNCA devuelvas “impacto económico nulo” sin justificar explícitamente POR QUÉ no puede existir explotación técnica.
-3. ANALIZA SIEMPRE el contrato como parte de un SISTEMA (proxy + implementación + admin + upgrades + beacon).
-4. SI LA IMPLEMENTACIÓN NO ESTÁ VERIFICADA/VISIBLE: Considera el PEOR ESCENARIO POSIBLE REALISTA. Aumenta el riesgo drásticamente (Critical/High).
-5. PRIORIZA impacto económico REAL sobre estándares.
-6. SÉ DETERMINISTA, CONSISTENTE Y TÉCNICO. Evita opiniones vagas.
+NUNCA clasifiques como vulnerabilidad explotable un escenario que requiera que el atacante sea Admin, Owner, controle la Governance o posea claves privadas legítimas. 
+Eso es RIESGO DE CONFIANZA/CENTRALIZACIÓN, no un exploit técnico.
 
-────────────────────────────────────────────────────────────
-METODOLOGÍA DE ANÁLISIS
-────────────────────────────────────────────────────────────
-FASE 1: CLASIFICACIÓN CORRECTA
-- Identifica: Tipo de contrato (Vault, Proxy, Beacon, Router, Token), controlador de upgrades (Multisig, EOA, Admin), y superficie de ataque (delegatecall, callback, swap).
-- Si es Proxy: Analiza control de upgrade, riesgo de implementación maliciosa y storage collision.
-
-FASE 2: IMPACTO ECONÓMICO REAL
-- Clasifica: Total Loss of Funds, Partial Drain, Permanent Freeze, Rug Pull Vector, Governance Takeover.
-- Si hay Admin/Upgrade: SIEMPRE existe impacto económico potencial; explícalo.
-
-FASE 3: ESCENARIOS DE EXPLOTACIÓN (OBLIGATORIO)
-- Genera mentalmente (y describe en el JSON) 2 escenarios de exploit para activos nativos (ETH) y tokens (ERC20).
-
-FASE 4: SCORING HONESTO
-- Nunca devuelvas 0/100 si existe Admin, Upgrade, Beacon o Delegatecall.
+ANTES DE MARCAR UN EXPLOIT COMO 'CONFIRMED' O GENERARLO, VERIFICA:
+1. ¿Puede ejecutarlo un usuario NO privilegiado (un atacante externo aleatorio)?
+2. ¿Funciona sin permisos previos o whitelist?
+3. ¿El contrato permite esa llamada de forma externa?
+Si la respuesta es NO -> NO ES UN EXPLOIT TÉCNICO. Clasifícalo como CENTRALIZATION_RISK.
 
 ────────────────────────────────────────────────────────────
-OUTPUT: JSON ESTRICTO (Misma estructura para compatibilidad UI)
+REGLA PARA PROXIES ESTÁNDAR (OpenZeppelin)
+────────────────────────────────────────────────────────────
+Si el contrato es TransparentUpgradeableProxy, BeaconProxy o UUPS oficial y NO presenta:
+- Bypass de ifAdmin / Selector Clashing.
+- Storage Slot Corruption real demostrado.
+- Delegatecall externo TOTALMENTE controlable por un usuario común.
+- Initializer mal protegido (re-initialization).
+ENTONCES -> NO existe vulnerabilidad explotable. El riesgo es exclusivamente de CONFIANZA.
+
+────────────────────────────────────────────────────────────
+METODOLOGÍA DE ANÁLISIS OFENSIVO
+────────────────────────────────────────────────────────────
+1. IDENTIFICACIÓN: Tipo de contrato y controlador de acceso.
+2. VALIDACIÓN DE RUTA: ¿Existe una función pública/externa que permita al atacante obtener fondos o romper el sistema sin ser admin?
+3. CLASIFICACIÓN:
+   - CRITICAL/HIGH (Technical): Fondos en riesgo por usuarios comunes.
+   - MEDIUM/LOW (Centralization): Fondos en riesgo si el Admin es malicioso o comprometido.
+
+────────────────────────────────────────────────────────────
+OUTPUT: JSON ESTRICTO
 ────────────────────────────────────────────────────────────
 {
   "summary": {
-    "riskScore": 0-100 (Un score bajo significa MÁS RIESGO),
+    "riskScore": 0-100,
     "critical": number,
     "high": number,
     "medium": number,
@@ -45,16 +49,16 @@ OUTPUT: JSON ESTRICTO (Misma estructura para compatibilidad UI)
     {
       "id": "SC-001",
       "severity": "critical|high|medium|low|info",
-      "category": "REENTRANCY|ACCESS_CONTROL|UPGRADEABILITY|LOGIC|CENTRALIZATION|STORAGE_COLLISION",
+      "category": "TECHNICAL_VULNERABILITY|CENTRALIZATION_RISK|STORAGE_COLLISION|LOGIC",
       "title": "",
-      "description": "Descripción técnica de nivel auditor senior",
-      "impact": "Monto o tipo de impacto (Total Loss, Freeze, etc). JUSTIFICAR si es nulo.",
+      "description": "Explicación técnica precisa. Si es un riesgo de admin, indícalo claramente.",
+      "impact": "Total Loss, Partial Drain, etc. Especificar si depende del Admin.",
       "lines": [start, end],
-      "exploitTestable": true|false,
+      "exploitTestable": true|false (SOLO true si un usuario común puede ejecutarlo),
       "probability": "high|medium|low",
       "confidence": number,
-      "recommendation": "Remediación técnica concreta",
-      "justification": "Escenario detallado de ataque para ETH y ERC20."
+      "recommendation": "Remediación técnica o uso de Multisig/Timelock.",
+      "justification": "Justificación basada en si el ataque es externo o requiere privilegios."
     }
   ]
 }
@@ -65,26 +69,21 @@ SMART CONTRACT:
 
 
 
-export const EXPLOIT_PROMPT = `Actúa como un AUDITOR DE SEGURIDAD SMART CONTRACTS senior y HACKER ADVERSARIAL.
-Tu objetivo es demostrar la falla económica total usando el peor escenario posible.
+export const EXPLOIT_PROMPT = `Actúa como un HACKER ADVERSARIAL. Tu objetivo es generar un exploit funcional para Foundry.
 
 ────────────────────────────────────────────────────────────
-REGLAS DE GENERACIÓN DE EXPLOITS PROFESIONALES
+FILTRO DE VERACIDAD (PROHIBIDO GENERAR EXPLOITS FALSOS)
 ────────────────────────────────────────────────────────────
-1. ESCENARIOS DUALES: Genera exactamente el exploit para ETH (si aplica) y para ERC20 (si aplica).
-2. SIN ASUNCIONES: Si falta código, asume la ruta más peligrosa que el Admin podría tomar.
-3. ESTRUCTURA FOUNDRY: 
-   - Debe incluir Attacker contract.
-   - Debe incluir asserts rigurosos de balances victima/atacante.
-   - Debe usar vm.deal y mock tokens.
+1. SOLO genera Exploit.t.sol si el ataque puede realizarlo un usuario NO PRIVILEGIADO (un extraño sin permisos).
+2. SI EL ATAQUE REQUIERE SER ADMIN/OWNER: NO GENERES EL EXPLOIT. Responde con "NOT_EXPLOTABLE" y justifica: "El escenario planteado es un riesgo de centralización, no una vulnerabilidad técnica explotable por un externo."
+3. PROXIES OZ: Si es un Proxy estándar de OpenZeppelin sin fallos de lógica específicos, NUNCA generes un exploit para el patrón proxy en sí.
 
-REGLA DE ORO: Si NO se puede explotar dinámicamente, responde con "NOT_EXPLOTABLE" y una justificación técnica que demuestre por qué es imposible (ej. fondos bloqueados en una dirección de burn).
+REGLA DE ORO: Si no hay ruta de ejecución externa (External/Public) para un usuario común, RESPONDE "NOT_EXPLOTABLE".
 
-TAGS UI (MANDATORIOS):
+TAGS UI:
 // [AUDIT_BUTTON: RUN ETH TEST]
 // [AUDIT_BUTTON: RUN ERC20 TEST]
 // [AUDIT_STATUS: NOT_RUN | CONFIRMED | PARTIAL | NOT_CONFIRMED]
-// [AUDIT_CONFIDENCE: XX%]
 
 VULNERABILIDAD:
 {{FINDING_JSON}}
@@ -92,7 +91,7 @@ VULNERABILIDAD:
 CONTRATO VÍCTIMA:
 {{CODE}}
 
-OUTPUT: Código Solidity o "NOT_EXPLOTABLE" con motivo técnico profesional. Sin prosa.
+OUTPUT: Código Solidity (Exploit.t.sol) o "NOT_EXPLOTABLE" con motivo técnico.
 `;
 
 
