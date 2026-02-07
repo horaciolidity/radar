@@ -13,16 +13,19 @@ export const config = {
 // HELPER: Extract JSON from AI text
 function extractJSON(text) {
     try {
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        // Remove potential markdown wrappers
+        const cleanText = text.replace(/```json\n?|```/g, '').trim();
+        const jsonMatch = cleanText.match(/\{[\s\S]*\}/);
         if (!jsonMatch) return null;
         return JSON.parse(jsonMatch[0]);
     } catch (e) {
+        console.error("JSON Extraction failed:", e.message, "Text snippet:", text.slice(0, 100));
         return null;
     }
 }
 
 export default async function handler(req) {
-    const VERSION = "v4.0-enterprise-auditor";
+    const VERSION = "v4.1-enterprise-auditor";
 
     if (req.method !== 'POST') {
         return new Response(JSON.stringify({ error: 'Method not allowed' }), {
@@ -67,13 +70,20 @@ export default async function handler(req) {
         // Fallback to Gemini
         if (!auditResult && process.env.GEMINI_API_KEY) {
             try {
+                console.log(`[${VERSION}] Trying Gemini...`);
                 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-                const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+                const modelName = "gemini-1.5-flash"; // Stable model name
+                const model = genAI.getGenerativeModel({ model: modelName });
                 const result = await model.generateContent(prompt);
                 const response = await result.response;
-                auditResult = extractJSON(response.text());
+                const text = response.text();
+                auditResult = extractJSON(text);
+                if (!auditResult) {
+                    console.warn(`[${VERSION}] Gemini returned text but no valid JSON found. Text:`, text.slice(0, 500));
+                }
             } catch (e) {
-                console.warn(`[${VERSION}] Gemini Error:`, e.message);
+                console.error(`[${VERSION}] Gemini Error:`, e.message);
+                throw new Error(`Gemini API Error: ${e.message}`);
             }
         }
 
