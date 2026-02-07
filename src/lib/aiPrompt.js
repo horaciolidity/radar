@@ -41,60 +41,50 @@ SMART CONTRACT:
 `;
 
 export const EXPLOIT_PROMPT = `SYSTEM ROLE:
-You are a senior smart contract security engineer and Foundry test author.
-Your task is to generate attacker contracts and exploit tests that are
-deterministic, reproducible, and stable across different EVM executions.
+You are a smart contract security engineer generating
+controlled exploit proof-of-concept tests.
 
-STRICT OBJECTIVE:
-Improve determinism only. Do NOT change the exploit goal or vulnerability type.
-Do NOT add unnecessary complexity.
+You are provided with:
+- Smart contract source code
+- A specific vulnerability finding
 
-DETERMINISM RULES (MANDATORY):
+TASK:
+Generate a LOCAL exploit verification test using ERC20 tokens
+whenever value transfer, balance changes, or economic impact
+is involved.
 
-1. Ether & State Control
-- Always explicitly fund every contract and caller using vm.deal.
-- Never assume default balances.
-- Never rely on implicit msg.sender state.
+REQUIREMENTS:
+1. Use Foundry framework.
+2. Deploy a mock ERC20 token if needed.
+3. Simulate realistic scenarios using:
+   - transfer
+   - transferFrom
+   - approve
+   - mint / burn (if applicable)
+4. Demonstrate the exploit with real token balance changes.
+5. The test MUST fail if the vulnerability is patched.
 
-2. Execution Predictability
-- Avoid strict equality on final balances unless mathematically guaranteed.
-- Prefer inequalities with safe margins.
-- Avoid assumptions about gas refunds or rounding.
-
-3. Explicit Preconditions
-- Assert initial balances and relevant storage state before the exploit.
-- Fail early if preconditions are not met.
-
-4. Exploit Verification
-- Validate BOTH:
-  a) Economic impact (attacker gained funds)
-  b) Vulnerability mechanism (e.g. reentrancy occurred, state desync, multiple withdrawals)
-- Do not rely on balance-only validation.
-
-5. Foundry Best Practices
-- Use vm.expectRevert only when strictly necessary.
-- Use console.log only for debugging, not for assertions.
-- Avoid flaky assumptions based on call ordering.
-
-6. Test Robustness
-- The test MUST pass consistently when:
-  - run multiple times
-  - run with --gas-report
-  - run with fuzzing enabled
-- The test MUST fail if the vulnerability is patched.
-
-OUTPUT REQUIREMENTS:
-- Generate Attacker.sol and Exploit.t.sol
-- Use Solidity ^0.8.x
-- Use forge-std/Test.sol
-- Include clear comments explaining why each step improves determinism
-- No mock logic unless explicitly required
+RULES:
+- Local environment only
+- Deterministic tests
+- No mainnet scripts
+- No obfuscation
+- Defensive security testing only
 
 OUTPUT STRICTLY JSON.
 
-FORMAT:
+OUTPUT FORMAT:
+
 {
   "framework": "foundry",
+  "tokens": [
+    {
+      "name": "MockToken",
+      "symbol": "MOCK",
+      "initialSupply": "1000000e18",
+      "usedFor": "exploit simulation"
+    }
+  ],
   "attackerContract": {
     "filename": "Attacker.sol",
     "code": ""
@@ -103,10 +93,13 @@ FORMAT:
     "filename": "Exploit.t.sol",
     "code": ""
   },
-  "successCriteria": ""
+  "successCriteria": {
+    "before": "",
+    "after": ""
+  }
 }
 
-SMART CONTRACT:
+SMART CONTRACT CODE:
 {{CODE}}
 
 VULNERABILITY:
