@@ -323,7 +323,7 @@ export const auditService = {
             console.error("Verification error:", error);
             // Fallback for missing key warning
             if (error.message === "SERVER_MISSING_KEY") {
-                alert("Please add your FREE Google Gemini API Key to server/.env (variable GEMINI_API_KEY) to use this feature!");
+                alert("Please add your GROQ_API_KEY and GEMINI_API_KEY to your Vercel/Environment variables to use this feature!");
             }
             return {
                 vulnerabilityId,
