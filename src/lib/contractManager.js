@@ -398,19 +398,38 @@ class ContractManager {
                             const receipt = await provider.getTransactionReceipt(tx.hash);
 
                             if (receipt && receipt.contractAddress) {
-                                console.log(`[Radar] ${network} CONTRACT DETECTED`, {
-                                    address: receipt.contractAddress,
-                                    creator: tx.from,
-                                    block: b,
-                                    tx: tx.hash
-                                });
+                                // STRICT FILTER: Check contract balance
+                                const balance = await provider.getBalance(receipt.contractAddress);
+                                const hasNativeBalance = balance > 0n;
 
+                                // Analyze contract to check if it's a token
                                 const analysis = await analyzeContract(receipt.contractAddress, tx.from, provider, network);
-                                analysis.block_number = b;
-                                analysis.tx_hash = tx.hash;
-                                analysis.timestamp = new Date(parseInt(block.timestamp, 16) * 1000).toISOString();
+                                const isToken = analysis.features.includes("ERC20 / Token");
 
-                                await this.saveContract(analysis);
+                                // 🟢 FILTER CONDITION: Must be Token OR have Native Balance
+                                if (isToken || hasNativeBalance) {
+                                    console.log(`[Radar] ${network} VALID CONTRACT FOUND`, {
+                                        address: receipt.contractAddress,
+                                        isToken,
+                                        balance: ethers.formatEther(balance)
+                                    });
+
+                                    // Add balance feature if significant
+                                    if (hasNativeBalance) {
+                                        const ethVal = parseFloat(ethers.formatEther(balance));
+                                        if (ethVal > 0.0001) {
+                                            analysis.features.push(`Balance: ${ethVal.toFixed(4)} Native`);
+                                        }
+                                    }
+
+                                    analysis.block_number = b;
+                                    analysis.tx_hash = tx.hash;
+                                    analysis.timestamp = new Date(parseInt(block.timestamp, 16) * 1000).toISOString();
+
+                                    await this.saveContract(analysis);
+                                } else {
+                                    // console.log(`[Radar] Ignored empty/junk contract ${receipt.contractAddress}`);
+                                }
                             }
                         } catch (txErr) {
                             console.warn(`[Radar] Receipt error ${tx.hash}:`, txErr.message);
