@@ -97,8 +97,8 @@ export async function analyzeContract(address, deployer, provider, network) {
         }
 
         // 4. SURGICAL VULNERABILITY DETECTION
-        // H1: Reentrancy Pattern (Call followed by state risk - simplified)
-        if (bytecode.includes('f1') && bytecode.length > 2000) { // f1 is CALL
+        // H1: Reentrancy Pattern
+        if (bytecode.includes('f1') && bytecode.length > 2000) {
             analysis.findings.push({ type: "Possible Reentrancy", severity: "HIGH", description: "Contract uses low-level calls. Verify if state updates follow C-E-I pattern." });
             analysis.risk_score += 45;
         }
@@ -116,7 +116,7 @@ export async function analyzeContract(address, deployer, provider, network) {
         }
 
         // H4: Honeypot / Transfer Restriction
-        if (bytecode.includes('08c379a0')) { // Error strings / Reverts in specific flows
+        if (bytecode.includes('08c379a0')) {
             analysis.findings.push({ type: "Honeypot Hazard", severity: "CRITICAL", description: "Hidden transfer restrictions detected in bytecode." });
             analysis.risk_score += 75;
         }
@@ -187,16 +187,19 @@ class ContractManager {
                     if (!tx.to || tx.to === ethers.ZeroAddress) {
                         const receipt = await provider.getTransactionReceipt(tx.hash).catch(() => null);
                         if (receipt && receipt.contractAddress) {
-                            // 🎯 SURGICAL ANALYSIS
                             const analysis = await analyzeContract(receipt.contractAddress, tx.from, provider, network);
                             if (!analysis) continue;
 
                             const bal = await provider.getBalance(receipt.contractAddress).catch(() => 0n);
-                            const hasVal = bal > 0n || analysis.has_liquidity;
+                            const hasNativeVal = bal > 0n;
+                            const isToken = analysis.type === "Token (ERC20)";
+                            const hasLiquidity = analysis.has_liquidity;
 
-                            // HIT CONDITION: (Value Detected) AND (High/Critical Vulnerability)
-                            if (hasVal && analysis.is_vulnerable) {
-                                console.log(`[RADAR 🎯] Surgical Hit: ${receipt.contractAddress} (${network})`);
+                            // 🎯 HYBRID RADAR: 
+                            // 1. Save ALL detectable Tokens (even without vulnerabilities)
+                            // 2. Save ALL Vulnerable contracts that have some value (Native or Liquidity)
+                            if (isToken || ((hasNativeVal || hasLiquidity) && analysis.is_vulnerable)) {
+                                console.log(`[RADAR 🎯] Hit: ${receipt.contractAddress} (${analysis.type})`);
                                 if (bal > 0n) analysis.features.push(`Native: ${parseFloat(ethers.formatEther(bal)).toFixed(4)}`);
 
                                 analysis.block_number = b;

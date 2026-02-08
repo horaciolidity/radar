@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
     ShieldCheck, ShieldAlert, Zap, Lock, ExternalLink,
     Copy, AlertCircle, RefreshCw, ChevronDown, ChevronUp,
-    Code2, Wallet, Database, AlertTriangle, Search
+    Code2, Wallet, Database, AlertTriangle, Search, Flame
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { NETWORKS } from '../data/mockData';
@@ -35,7 +35,6 @@ export default function ContractCard({ contract }) {
 
     const copyToClipboard = (text, label) => {
         navigator.clipboard.writeText(text);
-        // Simple silent feedback could be added here
     };
 
     const getStatusColor = () => {
@@ -47,10 +46,13 @@ export default function ContractCard({ contract }) {
         }
     };
 
+    const isVulnerable = contract.isVulnerable || contract.riskScore >= 40;
+
     return (
         <div className={cn(
             "glass-card transition-all duration-300 rounded-2xl p-5 border flex flex-col gap-4 relative overflow-hidden group/card",
-            contract.tag === 'CRITICAL' ? 'border-danger/20 bg-danger/[0.02]' : 'border-white/5'
+            contract.tag === 'CRITICAL' ? 'border-danger/30 bg-danger/[0.03] shadow-[0_0_20px_rgba(239,68,68,0.1)]' :
+                isVulnerable ? 'border-warning/30 bg-warning/[0.02]' : 'border-white/5'
         )}>
             {/* Background Network Accent */}
             <div
@@ -73,6 +75,7 @@ export default function ContractCard({ contract }) {
                         <div className="flex items-center gap-2">
                             <h3 className="font-bold text-base text-white truncate max-w-[140px]">{contract.name || 'Unknown Token'}</h3>
                             <span className="text-[10px] text-zinc-500 font-mono tracking-tighter">({contract.symbol || '???'})</span>
+                            {isVulnerable && <Flame size={14} className="text-warning animate-pulse" />}
                         </div>
                         <div className="flex items-center gap-1.5 mt-0.5">
                             <span className="text-[10px] text-zinc-500 font-mono tracking-tight">{contract.address.slice(0, 8)}...{contract.address.slice(-6)}</span>
@@ -148,7 +151,7 @@ export default function ContractCard({ contract }) {
                                         <div key={i} className="flex items-start gap-2 bg-zinc-900/30 rounded-lg p-2 border border-white/[0.01]">
                                             <div className={cn(
                                                 "mt-0.5 w-1.5 h-1.5 rounded-full shrink-0",
-                                                f.severity === 'CRITICAL' ? 'bg-danger' : 'bg-warning'
+                                                f.severity === 'CRITICAL' ? 'bg-danger shadow-[0_0_5px_rgba(239,68,68,0.5)]' : 'bg-warning'
                                             )} />
                                             <div className="flex flex-col">
                                                 <span className="text-[10px] font-bold text-zinc-300 leading-tight">{f.type}</span>
@@ -225,9 +228,12 @@ export default function ContractCard({ contract }) {
                 </div>
             </div>
 
-            {/* Critical Border Glow */}
-            {contract.tag === 'CRITICAL' && (
-                <div className="absolute inset-x-0 bottom-0 h-[2px] bg-gradient-to-r from-transparent via-danger/40 to-transparent animate-pulse" />
+            {/* Glow Highlights */}
+            {isVulnerable && (
+                <div className={cn(
+                    "absolute inset-x-0 bottom-0 h-[2px] animate-pulse-slow",
+                    contract.tag === 'CRITICAL' ? "bg-gradient-to-r from-transparent via-danger to-transparent" : "bg-gradient-to-r from-transparent via-warning to-transparent"
+                )} />
             )}
         </div>
     );
