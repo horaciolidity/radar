@@ -1,11 +1,36 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import Groq from 'groq-sdk';
 import { indexer } from './indexer.js';
 import { supabase } from './supabaseClient.js';
+import { AUDIT_SYSTEM_PROMPT } from './auditPrompt.js';
 
 const app = express();
 const PORT = 3001;
+
+// AI Integration via Groq
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || 'noclavetodavia' });
+const AI_MODEL = "llama-3.3-70b-versatile";
+
+const generateWithGroq = async (userContent, systemContent) => {
+    // If systemContent is provided, use it as system message and userContent as user message.
+    // Otherwise, treat userContent as the system message (legacy behavior for existing endpoints).
+    const messages = systemContent
+        ? [
+            { role: "system", content: systemContent },
+            { role: "user", content: userContent }
+        ]
+        : [{ role: "system", content: userContent }];
+
+    const completion = await groq.chat.completions.create({
+        messages,
+        model: AI_MODEL,
+        temperature: 0.1, // Low temperature for deterministic results
+        response_format: { type: "json_object" } // Force JSON
+    });
+    return completion.choices[0]?.message?.content || "";
+};
 
 app.use(cors());
 app.use(express.json());
@@ -40,7 +65,6 @@ app.post('/api/scan/history', async (req, res) => {
 });
 
 // Audit Contract logic
-// Audit Contract logic
 app.post('/api/audit-contract', async (req, res) => {
     const { address, network, code: manualCode, prompt } = req.body;
     try {
@@ -53,11 +77,19 @@ app.post('/api/audit-contract', async (req, res) => {
         // Use the prompt from the client which presumably contains the code and strict instructions
         // OR fallback to constructing it here if not provided (safety net)
         let finalPrompt = prompt;
-        if (!finalPrompt) {
-            return res.status(400).json({ success: false, error: "Missing audit prompt" });
+        // If the prompt is missing but we have code, construct a prompt
+        if (!finalPrompt && manualCode) {
+            finalPrompt = `Contract Code:\n${manualCode}`;
         }
 
-        const text = await generateWithGroq(finalPrompt);
+        if (!finalPrompt) {
+            return res.status(400).json({ success: false, error: "Missing audit prompt or code" });
+        }
+
+        // Use the DEFINITIVE AUDIT PROMPT as the system instruction
+        // and the client's prompt (or code) as the user message.
+        // We append a JSON instruction just in case, though relying on response_format is better.
+        const text = await generateWithGroq(finalPrompt, AUDIT_SYSTEM_PROMPT);
 
         // Robust JSON extraction
         const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -68,10 +100,12 @@ app.post('/api/audit-contract', async (req, res) => {
 
         const auditData = JSON.parse(jsonMatch[0]);
 
-        // Validate structure briefly
-        if (!auditData.summary || !auditData.findings) {
-            throw new Error("AI response missing required 'summary' or 'findings' fields");
-        }
+        // Map AI response to frontend expected format if keys differ
+        const summary = auditData.summary || auditData.Summary || {};
+        const findings = auditData.findings || auditData.Findings || [];
+
+        // Check for "Security Score" in summary or root
+        const riskScore = summary.riskScore || summary["Security Score"] || auditData["Security Score"] || 0;
 
         const auditResult = {
             success: true,
@@ -80,13 +114,14 @@ app.post('/api/audit-contract', async (req, res) => {
                 address,
                 network,
                 code: manualCode, // Send back what was audited
-                riskScore: auditData.summary.riskScore,
-                summary: auditData.summary,
-                vulnerabilities: auditData.findings.map(f => ({
+                riskScore: riskScore,
+                summary: summary,
+                vulnerabilities: findings.map(f => ({
                     ...f,
-                    // Ensure compatibility with frontend expected fields if needed
-                    severity: f.severity.toUpperCase(),
-                    explanation: f.description
+                    // Ensure compatibility with frontend expected fields
+                    severity: (f.Severity || f.severity || "INFO").toUpperCase(),
+                    explanation: f.Description || f.description || f.Title,
+                    title: f.Title || f.title
                 }))
             }
         };
@@ -98,7 +133,7 @@ app.post('/api/audit-contract', async (req, res) => {
                     address,
                     network,
                     result: auditResult.audit,
-                    risk_score: auditData.summary.riskScore,
+                    risk_score: riskScore,
                     code_content: manualCode
                 }]);
             }
@@ -144,8 +179,6 @@ app.get('/api/contracts', async (req, res) => {
     }
 });
 
-import Groq from 'groq-sdk';
-
 // Resume previous scans
 const state = indexer.getStatus();
 Object.keys(state.activeScans).forEach(network => {
@@ -153,20 +186,6 @@ Object.keys(state.activeScans).forEach(network => {
         indexer.startScanning(network);
     }
 });
-
-// AI Integration via Groq
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || 'noclavetodavia' });
-const AI_MODEL = "llama-3.3-70b-versatile";
-
-const generateWithGroq = async (prompt) => {
-    const completion = await groq.chat.completions.create({
-        messages: [{ role: "system", content: prompt }], // Sending strict prompt as system/user message
-        model: AI_MODEL,
-        temperature: 0.1, // Low temperature for deterministic results
-        response_format: { type: "json_object" } // Force JSON
-    });
-    return completion.choices[0]?.message?.content || "";
-};
 
 app.post('/api/generate-exploit', async (req, res) => {
     const { prompt } = req.body;
@@ -176,6 +195,8 @@ app.post('/api/generate-exploit', async (req, res) => {
         }
 
         console.log("Generating exploit with Groq...");
+        // Legacy: pass prompt as single argument (becomes system or user depending on helper logic)
+        // Here we used to pass it as system prompt.
         const text = await generateWithGroq(prompt);
 
         // Extract JSON from potential markdown blocks (though json_object mode should help)

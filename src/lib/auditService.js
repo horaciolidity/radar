@@ -395,7 +395,7 @@ export const auditService = {
                 }
             }
 
-            if (!sourceCode) throw new Error("No source code available for analysis");
+            if (!sourceCode) throw new Error("Contract source code not verified on Explorer. Please copy/paste code manually.");
 
             // 2. RUN ENTERPRISE AI AUDIT via API
             const prompt = AUDIT_PROMPT.replace('{{CODE}}', sourceCode);
