@@ -14,11 +14,49 @@ const SIGNATURES = {
     PAIR_FACTORY: 'c9c991c0', // uniswapV2Pair getReserves/factory heuristic
 };
 
-const DEX_FACTORIES = {
-    'Ethereum': '0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f', // Uniswap V2
-    'BSC': '0xca143ce32fe78f1f7019d7d551a6402fc5350c73', // PancakeSwap V2
-    'Polygon': '0x5757371414417b8C6CAad45bAeF941aBc7d3Ab32', // QuickSwap
+// DEX Configuration for Liquidity Checks
+const DEX_CONFIG = {
+    'Ethereum': {
+        factory: '0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f', // Uniswap V2
+        weth: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',    // WETH
+        symbol: 'ETH'
+    },
+    'BSC': {
+        factory: '0xcA143Ce32Fe78f1f7019d7d551a6402fC5350c73', // PancakeSwap V2
+        weth: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c',    // WBNB
+        symbol: 'BNB'
+    },
+    'Polygon': {
+        factory: '0x5757371414417b8C6CAad45bAeF941aBc7d3Ab32', // QuickSwap
+        weth: '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270',    // WMATIC
+        symbol: 'MATIC'
+    },
+    'Base': {
+        factory: '0x8909Dc15e46C4A96d16279053B9F26870F605850', // BaseSwap
+        weth: '0x4200000000000000000000000000000000000006',    // WETH
+        symbol: 'ETH'
+    },
+    'Arbitrum': {
+        factory: '0x1C232F01118CB8B424793ae03F870aa7D0ff7fFF', // SushiSwap (Arb1)
+        weth: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',    // WETH
+        symbol: 'ETH'
+    },
+    'Optimism': {
+        factory: '0x1F98431c8aD98523631AE4a59f267346ea31F984', // Uniswap V3 (Using V2 compatible if available or custom logic)
+        weth: '0x4200000000000000000000000000000000000006',    // WETH
+        symbol: 'ETH'
+    }
 };
+
+const PAIR_ABI = [
+    "function getReserves() view returns (uint112, uint112, uint32)",
+    "function token0() view returns (address)",
+    "function token1() view returns (address)"
+];
+
+const FACTORY_ABI = [
+    "function getPair(address tokenA, address tokenB) view returns (address pair)"
+];
 
 export async function analyzeContract(address, deployer, provider, network = 'Ethereum') {
     const analysis = {
@@ -63,8 +101,10 @@ export async function analyzeContract(address, deployer, provider, network = 'Et
         // 2. Token Detection
         const hasTransfer = bytecode.includes(SIGNATURES.TRANSFER);
         const hasTotalSupply = bytecode.includes(SIGNATURES.TOTAL_SUPPLY);
+        let isToken = false;
 
         if (hasTransfer && hasTotalSupply) {
+            isToken = true;
             analysis.type = "Token (ERC20)";
             analysis.features.push("ERC20 / Token");
             try {
@@ -138,11 +178,52 @@ export async function analyzeContract(address, deployer, provider, network = 'Et
             });
         }
 
-        // 5. Liquidity Detection (Heuristic)
-        // Check if bytecode has signatures of a pair or factory interaction
-        if (bytecode.includes('0dfe165a') || bytecode.includes('bc25cf77')) { // getReserves or similar
+        // 5. REAL Liquidity Check (DEX Query)
+        // If it's a token found on a supported network, check for liquidity in the default factory
+        if (isToken && DEX_CONFIG[network]) {
+            try {
+                const { factory, weth, symbol: nativeSymbol } = DEX_CONFIG[network];
+                const factoryContract = new ethers.Contract(factory, FACTORY_ABI, provider);
+
+                // Get Pair Address
+                const pairAddress = await factoryContract.getPair(address, weth);
+
+                if (pairAddress && pairAddress !== '0x0000000000000000000000000000000000000000') {
+                    // Check Reserves
+                    const pairContract = new ethers.Contract(pairAddress, PAIR_ABI, provider);
+                    const reserves = await pairContract.getReserves();
+                    const token0 = await pairContract.token0();
+
+                    // Identify which reserve is WETH/Native
+                    // reserves[0] corresponds to token0, reserves[1] to token1
+                    // If token0 is WETH, use reserves[0], else reserves[1]
+                    const wethReserve = (token0.toLowerCase() === weth.toLowerCase()) ? reserves[0] : reserves[1];
+
+                    // Calculate numeric value (rough)
+                    const wethValue = parseFloat(ethers.formatEther(wethReserve));
+
+                    if (wethValue > 0) {
+                        analysis.hasLiquidity = true;
+                        analysis.features.push(`Liquidity: ${wethValue.toFixed(4)} ${nativeSymbol}`);
+                        // Reduce risk slightly if liquidity is significant (> 1 ETH/BNB/MATIC)
+                        if (wethValue > 1.0) {
+                            analysis.riskScore = Math.max(0, analysis.riskScore - 15);
+                            analysis.tag = (analysis.riskScore < 20) ? "SAFE" : "MEDIUM";
+                        }
+                    } else {
+                        analysis.features.push("Pair Created (Empty)");
+                    }
+                }
+            } catch (liqErr) {
+                // Ignore liquidity check errors (network issues, etc)
+                // console.warn(`[Radar] Liquidity check failed for ${address}: ${liqErr.message}`);
+            }
+        }
+
+        // Fallback or generic LP check
+        if (!analysis.hasLiquidity && (bytecode.includes('0dfe165a') || bytecode.includes('bc25cf77'))) { // getReserves or similar
             analysis.hasLiquidity = true;
-            analysis.features.push("LP Contract");
+            analysis.features.push("LP Contract Pattern");
             analysis.type = "Liquidity Pool";
         }
 
@@ -179,7 +260,8 @@ export async function analyzeContract(address, deployer, provider, network = 'Et
             analysis.isVulnerable = false;
             analysis.isScam = false;
         } else {
-            analysis.tag = "SAFE";
+            // Default safe unless flagged
+            if (!analysis.tag) analysis.tag = "SAFE";
             analysis.isVulnerable = false;
             analysis.isScam = false;
         }
@@ -195,4 +277,3 @@ export async function analyzeContract(address, deployer, provider, network = 'Et
         return { ...analysis, error: error.message };
     }
 }
-
