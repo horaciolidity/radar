@@ -157,7 +157,8 @@ class ContractManager {
             const urls = getRpcUrls(network);
             const url = urls[(this.rpcIndex[network] || 0) % urls.length];
             if (!url) return null;
-            this.providers[network] = new ethers.JsonRpcProvider(url, NETWORK_IDS[network] ? { chainId: NETWORK_IDS[network] } : undefined, { staticNetwork: true });
+            // FIXED: Pass chainId as number for Ethers v6
+            this.providers[network] = new ethers.JsonRpcProvider(url, NETWORK_IDS[network], { staticNetwork: true });
         }
         return this.providers[network];
     }
@@ -195,9 +196,6 @@ class ContractManager {
                             const isToken = analysis.type === "Token (ERC20)";
                             const hasLiquidity = analysis.has_liquidity;
 
-                            // 🎯 HYBRID RADAR: 
-                            // 1. Save ALL detectable Tokens (even without vulnerabilities)
-                            // 2. Save ALL Vulnerable contracts that have some value (Native or Liquidity)
                             if (isToken || ((hasNativeVal || hasLiquidity) && analysis.is_vulnerable)) {
                                 console.log(`[RADAR 🎯] Hit: ${receipt.contractAddress} (${analysis.type})`);
                                 if (bal > 0n) analysis.features.push(`Native: ${parseFloat(ethers.formatEther(bal)).toFixed(4)}`);
