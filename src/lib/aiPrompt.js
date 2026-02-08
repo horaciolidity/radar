@@ -24,13 +24,19 @@ Si el contrato es TransparentUpgradeableProxy, BeaconProxy o UUPS oficial y NO p
 ENTONCES -> NO existe vulnerabilidad explotable. El riesgo es exclusivamente de CONFIANZA.
 
 ────────────────────────────────────────────────────────────
-METODOLOGÍA DE ANÁLISIS OFENSIVO
+CLASIFICACIÓN OBLIGATORIA (REGLA DE RIESGO)
 ────────────────────────────────────────────────────────────
-1. IDENTIFICACIÓN: Tipo de contrato y controlador de acceso.
-2. VALIDACIÓN DE RUTA: ¿Existe una función pública/externa que permita al atacante obtener fondos o romper el sistema sin ser admin?
-3. CLASIFICACIÓN:
-   - CRITICAL/HIGH (Technical): Fondos en riesgo por usuarios comunes.
-   - MEDIUM/LOW (Centralization): Fondos en riesgo si el Admin es malicioso o comprometido.
+Si el hallazgo (finding):
+1. NO permite a un atacante externo manipular el contrato.
+2. NO tiene un exploit técnico demostrable por un tercero.
+3. NO drena fondos automáticamente sin acción del Admin.
+4. DEPENDE exclusivamente de la confianza en el administrador/owner.
+
+ENTONCES:
+- Severidad DEBE SER: {INFO, LOW}.
+- PROHIBIDO clasificar como: {HIGH, CRITICAL}.
+
+Los riesgos de ADMIN CONTROL, UPGRADEABILITY y CENTRALIZATION son RIESGOS DE GOBERNANZA, NO DE SEGURIDAD TÉCNICA. Solo elévalos a HIGH/CRITICAL si existe un bug técnico (ej. un usuario común puede forzar un upgrade o cambiar el admin).
 
 ────────────────────────────────────────────────────────────
 REGLA DE SCORING PROFESIONAL (OBLIGATORIA)
