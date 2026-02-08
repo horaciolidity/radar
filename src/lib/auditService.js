@@ -45,9 +45,9 @@ const analyzeSecurity = (code) => {
             (lowerContent.includes('tradingopen') || lowerContent.includes('allowed') || lowerContent.includes('blacklist') || lowerContent.includes('isbot')) &&
             !lowerContent.includes('owner')
         ) {
-            addFinding('Potential Honeypot Logic', 'critical', i,
-                'Transfer appears conditionally restricted based on custom flags (tradingOpen, isBot, etc). Recommendation: Verify these restrictions cannot be abused to lock funds.',
-                'Users might be unable to sell if the owner disables trading or blacklists them.',
+            addFinding('Potential Honeypot Logic (Unverified)', 'high', i,
+                'Transfer appears conditionally restricted based on custom flags. Requires manual verification of owner privileges.',
+                'Users might be unable to sell if the owner disables trading. (Heuristic detection only)',
                 true);
         }
 
@@ -60,9 +60,9 @@ const analyzeSecurity = (code) => {
         ) {
             // Heuristic: Strange balance updates outside standard transfer
             if (lowerContent.includes('_balances[sender] =') || lowerContent.includes('_basictransfer')) {
-                addFinding('Non-Standard Balance Update', 'critical', i,
+                addFinding('Non-Standard Balance Update (Unverified)', 'high', i,
                     'Balances are being modified in a non-standard way. Recommendation: Ensure strictly standard ERC20 transfer logic.',
-                    'Risk of hidden minting or balance spoofing.',
+                    'Risk of hidden minting or balance spoofing. (Heuristic detection only)',
                     true);
             }
         }
@@ -103,17 +103,17 @@ const analyzeSecurity = (code) => {
 
         // 6. Reentrancy
         if (content.includes('.call{value:') && !lowerContent.includes('nonreentrant')) {
-            addFinding('Potential Reentrancy', 'critical', i,
+            addFinding('Potential Reentrancy (Unverified)', 'medium', i,
                 'Low-level call used to transfer ETH without reentrancy guard. Recommendation: Use ReentrancyGuard/nonReentrant.',
-                'Attackers can drain funds by recursively calling.',
+                'Potential risk if state changes happen after call. (Static check only)',
                 true);
         }
 
         // 7. Delegatecall
         if (content.includes('delegatecall')) {
-            addFinding('Unsafe Delegatecall', 'critical', i,
+            addFinding('Unsafe Delegatecall (Unverified)', 'high', i,
                 'Contract executes code from another address. Recommendation: Verify target trust.',
-                'If target is malicious, contract can be destroyed or manipulated.',
+                'If target is malicious, contract can be destroyed or manipulated. (Static check only)',
                 true);
         }
 
@@ -294,8 +294,8 @@ export const auditService = {
         } catch (error) {
             console.error("Exploit generation error:", error);
             // Fallback for demo if backend is offline or key missing.
-            if (error.message === "SERVER_MISSING_KEY" || error.message.includes("GEMINI_API_KEY")) {
-                alert("Please add your FREE Google Gemini API Key to server/.env (variable GEMINI_API_KEY) to use this feature!");
+            if (error.message === "SERVER_MISSING_KEY" || error.message.includes("GROQ_API_KEY")) {
+                alert("Please add your GROQ_API_KEY to server/.env to use this feature!");
                 return { success: false, error: "Missing API Key" };
             }
             return { success: false, error: error.message };
@@ -323,7 +323,7 @@ export const auditService = {
             console.error("Verification error:", error);
             // Fallback for missing key warning
             if (error.message === "SERVER_MISSING_KEY") {
-                alert("Please add your GROQ_API_KEY and GEMINI_API_KEY to your Vercel/Environment variables to use this feature!");
+                alert("Please add your GROQ_API_KEY to your Vercel/Environment variables to use this feature!");
             }
             return {
                 vulnerabilityId,

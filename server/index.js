@@ -40,38 +40,37 @@ app.post('/api/scan/history', async (req, res) => {
 });
 
 // Audit Contract logic
+// Audit Contract logic
 app.post('/api/audit-contract', async (req, res) => {
-    const { address, network, code: manualCode } = req.body;
+    const { address, network, code: manualCode, prompt } = req.body;
     try {
-        // Simple analysis implementation for the local server
-        let sourceCode = manualCode;
-        if (address && network) {
-            // Simulated fetch
-            sourceCode = `// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
-
-contract LocalCheck {
-    mapping(address => uint) public balances;
-    function withdraw() public {
-        (bool s,) = msg.sender.call{value: balances[msg.sender]}("");
-        require(s);
-        balances[msg.sender] = 0;
-    }
-}`;
+        if (!process.env.GROQ_API_KEY) {
+            return res.status(500).json({ success: false, error: "Server missing GROQ_API_KEY" });
         }
 
-        const vulnerabilities = [];
-        if (sourceCode.includes('.call{value:')) {
-            vulnerabilities.push({
-                id: 'v1',
-                title: 'Potential Reentrancy',
-                severity: 'CRITICAL',
-                startLine: 7,
-                endLine: 9,
-                explanation: 'State update happens after external call.',
-                impact: 'Funds drainage.',
-                recommendation: 'Use Checks-Effects-Interactions pattern.'
-            });
+        console.log(`[Audit] Starting analysis for ${address || 'Manual Code'} on ${network || 'Unknown'}`);
+
+        // Use the prompt from the client which presumably contains the code and strict instructions
+        // OR fallback to constructing it here if not provided (safety net)
+        let finalPrompt = prompt;
+        if (!finalPrompt) {
+            return res.status(400).json({ success: false, error: "Missing audit prompt" });
+        }
+
+        const text = await generateWithGroq(finalPrompt);
+
+        // Robust JSON extraction
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+            console.error("AI Response invalid:", text);
+            throw new Error("AI did not return valid JSON");
+        }
+
+        const auditData = JSON.parse(jsonMatch[0]);
+
+        // Validate structure briefly
+        if (!auditData.summary || !auditData.findings) {
+            throw new Error("AI response missing required 'summary' or 'findings' fields");
         }
 
         const auditResult = {
@@ -80,19 +79,36 @@ contract LocalCheck {
                 name: address ? `Audit ${address.slice(0, 8)}` : 'Manual Audit',
                 address,
                 network,
-                code: sourceCode,
-                riskScore: vulnerabilities.length > 0 ? 85 : 0,
-                vulnerabilities
+                code: manualCode, // Send back what was audited
+                riskScore: auditData.summary.riskScore,
+                summary: auditData.summary,
+                vulnerabilities: auditData.findings.map(f => ({
+                    ...f,
+                    // Ensure compatibility with frontend expected fields if needed
+                    severity: f.severity.toUpperCase(),
+                    explanation: f.description
+                }))
             }
         };
 
         // Save to Supabase (optional for local)
-        await supabase.from('contract_audits').insert([{
-            address, network, result: auditResult.audit, risk_score: auditResult.audit.riskScore, code_content: sourceCode
-        }]);
+        try {
+            if (address && network) {
+                await supabase.from('contract_audits').insert([{
+                    address,
+                    network,
+                    result: auditResult.audit,
+                    risk_score: auditData.summary.riskScore,
+                    code_content: manualCode
+                }]);
+            }
+        } catch (dbError) {
+            console.warn("Failed to save audit to DB:", dbError.message);
+        }
 
         res.json(auditResult);
     } catch (e) {
+        console.error("Audit Error:", e);
         res.status(500).json({ success: false, error: e.message });
     }
 });
@@ -128,7 +144,7 @@ app.get('/api/contracts', async (req, res) => {
     }
 });
 
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import Groq from 'groq-sdk';
 
 // Resume previous scans
 const state = indexer.getStatus();
@@ -138,23 +154,31 @@ Object.keys(state.activeScans).forEach(network => {
     }
 });
 
-// AI Integration
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || 'noclavetodavia');
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+// AI Integration via Groq
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || 'noclavetodavia' });
+const AI_MODEL = "llama-3.3-70b-versatile";
+
+const generateWithGroq = async (prompt) => {
+    const completion = await groq.chat.completions.create({
+        messages: [{ role: "system", content: prompt }], // Sending strict prompt as system/user message
+        model: AI_MODEL,
+        temperature: 0.1, // Low temperature for deterministic results
+        response_format: { type: "json_object" } // Force JSON
+    });
+    return completion.choices[0]?.message?.content || "";
+};
 
 app.post('/api/generate-exploit', async (req, res) => {
     const { prompt } = req.body;
     try {
-        if (!process.env.GEMINI_API_KEY) {
-            return res.status(500).json({ success: false, error: "Server missing GEMINI_API_KEY" });
+        if (!process.env.GROQ_API_KEY) {
+            return res.status(500).json({ success: false, error: "Server missing GROQ_API_KEY" });
         }
 
-        console.log("Generating exploit with Gemini...");
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const text = response.text();
+        console.log("Generating exploit with Groq...");
+        const text = await generateWithGroq(prompt);
 
-        // Extract JSON from potential markdown blocks
+        // Extract JSON from potential markdown blocks (though json_object mode should help)
         const jsonMatch = text.match(/\{[\s\S]*\}/);
         if (!jsonMatch) throw new Error("No JSON found in AI response");
 
@@ -169,14 +193,12 @@ app.post('/api/generate-exploit', async (req, res) => {
 app.post('/api/verify-exploit', async (req, res) => {
     const { prompt } = req.body;
     try {
-        if (!process.env.GEMINI_API_KEY) {
-            return res.status(500).json({ success: false, error: "Server missing GEMINI_API_KEY" });
+        if (!process.env.GROQ_API_KEY) {
+            return res.status(500).json({ success: false, error: "Server missing GROQ_API_KEY" });
         }
 
-        console.log("Verifying exploit with Gemini...");
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const text = response.text();
+        console.log("Verifying exploit with Groq...");
+        const text = await generateWithGroq(prompt);
 
         const jsonMatch = text.match(/\{[\s\S]*\}/);
         if (!jsonMatch) throw new Error("No JSON found in AI response");

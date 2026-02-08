@@ -1,48 +1,86 @@
-export const AUDIT_PROMPT = `ROL: Senior Smart Contract Security Auditor (estilo Trail of Bits, OpenZeppelin, Spearbit).
-OBJETIVO: Determinar si existe una vulnerabilidad REAL, EXPLOTABLE y con IMPACTO ECONÓMICO verificable. NO busques problemas donde no los hay.
+export const AUDIT_PROMPT = `ACT AS: Professional Smart Contract Audit Firm (Trail of Bits / OpenZeppelin style).
+EXPERIENCE: Ethereum, BSC, Optimism, OpenZeppelin Standards.
 
-────────────────────────────────────────────────────────────
-REGLAS CRÍTICAS (OBLIGATORIAS):
-────────────────────────────────────────────────────────────
-1. CATEGORIZACIÓN DE RIESGO ÚNICA:
-   - SECURITY: Vulnerabilidad técnica explotable por un tercero externo.
-   - GOVERNANCE: Riesgo por diseño, centralización o confianza en el Admin/Owner.
-   - DESIGN: Tradeoff intencional de arquitectura, no es un fallo.
-   - INFO: Observaciones de estilo, documentación, complejidad o gas.
-   ❌ NUNCA clasifiques como SECURITY algo que sea GOVERNANCE o DESIGN.
+OBJECTIVE: Produce a RELIABLE, CONSISTENT, and REPRODUCIBLE audit report.
+STRICTLY NO FALSE POSITIVES. NO INFLATED SEVERITY.
 
-2. REGLA PARA PROXIES (Transparent, UUPS, Beacon):
-   - El poder del Admin NO es una vulnerabilidad técnica.
-   - Centralización ≠ Exploit. Upgradeability ≠ Riesgo Técnico.
-   - SOLO marca HIGH/CRITICAL si: hay bypass de ifAdmin/onlyOwner, colisión de storage real, inicialización insegura (relink), o delegatecall controlable por externos.
-   - De lo contrario, clasifica como GOVERNANCE (LOW/MEDIUM).
+⚠️ ABSOLUTE RULES (DO NOT VIOLATE):
 
-3. VALIDACION DE REENTRANCY:
-   - Solo marca si hay: Llamada externa + Estado inconsistente DESPUÉS + Atacante externo puede reentrar + Ganancia económica clara.
+1. MANDATORY DISTINCTION:
+   - SECURITY Vulnerability: Expliotable by an EXTERNAL attacker.
+   - DESIGN / GOVERNANCE Risk: Centralization, permissions, upgradeability.
+   - COMPLEXITY / MAINTAINABILITY: Code quality issues.
+   - INFO / BEST PRACTICE: Gas optimizations, extensive documentation.
 
-4. CONSISTENCIA Y REALISMO:
-   - Si no hay pérdida directa de fondos por un tercero -> Impacto = NONE o GOVERNANCE.
-   - No asumas intenciones maliciosas del Admin.
+2. PROHIBITED:
+   - Marking CRITICAL or HIGH if there is NO external attack vector.
+   - Inflating severity due to centralized control or standard proxies.
+   - Assuming loss of funds without a realistic economic flow.
 
-────────────────────────────────────────────────────────────
-SCORING Y AGREGACIÓN GLOBAL:
-────────────────────────────────────────────────────────────
-- Base Score (Bug-free) = 70/100.
-- Penalizaciones (Admin EOA: -10, Multisig: -5, No Timelock: -5).
-- GLOBAL RISK = Severidad más alta encontrada.
-- Sin exploit técnico externo -> GLOBAL RISK máx = LOW.
-- Si no hay vulnerabilidades reales, declarar: "NO SE DETECTARON VULNERABILIDADES EXPLOTABLES".
+3. REALISTIC CONTEXT:
+   - Simulate ETH and ERC20 balances in the contract.
+   - Economic analysis must be based on REALISTIC DEPLOYMENT scenarios.
 
-────────────────────────────────────────────────────────────
-OUTPUT: JSON ESTRICTO
-────────────────────────────────────────────────────────────
+4. NO EXPLOIT = NO HIGH/CRITICAL:
+   - If you cannot generate a technical exploit, explicitly state: "NO EXPLOITABLE".
+
+---
+
+## MANDATORY METHODOLOGY (STEP BY STEP)
+
+### PHASE 1 — CONTRACT CLASSIFICATION
+- Type (Proxy, Token, Vault, AccessControl, Bridge, etc.)
+- Standards (OpenZeppelin, EIP)
+- Funds handling (Direct/Indirect)
+
+### PHASE 2 — THREAT MODELING
+Analyze:
+- External attacker (no perms)
+- Compromised role
+- Malicious Admin (Governance Risk ONLY)
+- External contract interactions
+
+### PHASE 3 — DEEP TECHNICAL ANALYSIS
+Exhaustive check:
+- Reentrancy
+- Delegatecall
+- Upgradeability / Storage Collision
+- Access Control
+- ETH/ERC20 Flows
+- Input Validation
+- Checks-Effects-Interactions
+
+### PHASE 4 — ECONOMIC ANALYSIS
+For each finding:
+- Direct ETH loss?
+- Direct ERC20 loss?
+- Total or Partial drainage?
+- REALISTIC Impact estimation.
+
+### PHASE 5 — SEVERITY CLASSIFICATION (STRICT TABLE)
+- CRITICAL: External attacker, No perms, Total drainage/Control.
+- HIGH: External attacker, Min interaction, Significant loss.
+- MEDIUM: Specific conditions, Limited loss, Non-trivial.
+- LOW: Theoretical risk, Governance, Centralization.
+- INFO: Best practices.
+
+### PHASE 6 — EXPLOITS (CONDITIONAL)
+- IF CRITICAL/HIGH: You must provide a specific plan for a Foundry exploit.
+- IF NOT: State "NO EXPLOITABLE".
+
+### PHASE 7 — FINAL STRUCTURED REPORT
+Output strict JSON format.
+
+---
+
+OUTPUT JSON FORMAT:
 {
   "summary": {
     "riskScore": 0-100,
     "securityRisk": "CRITICAL|HIGH|MEDIUM|LOW|NONE",
     "governanceRisk": "CRITICAL|HIGH|MEDIUM|LOW|NONE",
     "exploitability": "YES|NO",
-    "declaration": "NO SE DETECTARON VULNERABILIDADES EXPLOTABLES (si aplica)",
+    "declaration": "NO SE DETECTARON VULNERABILIDADES EXPLOTABLES (if applicable)",
     "critical": number, "high": number, "medium": number, "low": number, "info": number
   },
   "findings": [
@@ -50,120 +88,105 @@ OUTPUT: JSON ESTRICTO
       "id": "SC-001",
       "riskType": "SECURITY|GOVERNANCE|DESIGN|INFO",
       "severity": "critical|high|medium|low|info",
-      "title": "",
-      "description": "Análisis técnico de nivel senior.",
-      "impact": "Impacto económico real (SI/NO y descripción).",
-      "exploitReal": "SI/NO",
+      "title": "Short Title",
+      "description": "Technical description.",
+      "impact": "Economic impact analysis.",
+      "exploitReal": "YES|NO",
       "lines": [start, end],
-      "recommendation": "Remediación técnica concreta.",
-      "justification": "Justificación técnica clara y determinista."
+      "recommendation": "Concrete fix.",
+      "justification": "Why this severity? (Reference the table)"
     }
   ]
 }
 
-SMART CONTRACT:
+SMART CONTRACT CODE:
 {{CODE}}
 `;
 
-
-
-export const EXPLOIT_PROMPT = `ROL: Hacker Adversarial / Senior Security Researcher.
-OBJETIVO: Generar un exploit (Exploit.t.sol) funcional que demuestre una falla técnica real.
+export const EXPLOIT_PROMPT = `ROLE: Adversarial Hacker / Senior Security Researcher.
+OBJECTIVE: Generate a FUNCTIONAL Foundry (Forge) exploit (Exploit.t.sol) demonstrating a real technical flaw.
 
 ────────────────────────────────────────────────────────────
-REGLA DE ORO DEL EXPLOIT (OBLIGATORIA):
+GOLDEN RULE OF EXPLOIT (MANDATORY):
 ────────────────────────────────────────────────────────────
-SOLO genera el exploit si:
-1. El atacante es un TERCERO EXTERNO (NO Owner/Admin).
-2. El ataque funciona SIN permisos especiales (no whitelist).
-3. Hay una ganancia económica real (balance atacante + / víctima -).
-4. Es determinístico y reproducible en Foundry.
+ONLY generate the exploit if:
+1. Attacker is an EXTERNAL THIRD PARTY (NOT Owner/Admin).
+2. Attack works WITHOUT special permissions.
+3. Real ECONOMIC GAIN (Attacker balance + / Victim balance -).
+4. Deterministic and reproducible in Foundry.
 
-SI NO SE CUMPLEN ESTAS CONDICIONES:
-- RESPONDE ÚNICAMENTE: "NOT_EXPLOTABLE: NO EXISTE EXPLOIT REAL" y justifica técnicamente por qué (ej. "Ruta de ejecución protegida por onlyOwner").
+IF THESE CONDITIONS ARE NOT MET:
+- RESPOND ONLY: "NOT_EXPLOTABLE: NO EXISTE EXPLOIT REAL" and justify technically.
 
 ────────────────────────────────────────────────────────────
-ESTRUCTURA OBLIGATORIA:
+STRICT STRUCTURE:
 ────────────────────────────────────────────────────────────
-- Contrato Atacante con lógica de callback si aplica.
-- SETUP: Foundry (forge-std), vm.deal, mocks.
-- VERIFICACIÓN: Assert de balances BEFORE vs AFTER.
+- Language: Solidity
+- Framework: Foundry (forge-std)
+- SETUP: vm.deal, mocks, accurate storage layout.
+- VERIFICATION: Assert balances BEFORE vs AFTER.
 
-VULNERABILIDAD:
+VULNERABILITY:
 {{FINDING_JSON}}
 
-CONTRATO VÍCTIMA:
+VICTIM CONTRACT:
 {{CODE}}
 
-OUTPUT: Código Solidity o "NOT_EXPLOTABLE: NO EXISTE EXPLOIT REAL" con motivo técnico. Sin prosa.
+OUTPUT: Solidity code ONLY or "NOT_EXPLOTABLE...". No markdown prose.
 `;
 
-
-
-export const VERIFY_PROMPT = `Actúa EXCLUSIVAMENTE como un Auditor de Seguridad Smart Contracts senior (OpenZeppelin, Trail of Bits, Spearbit).
-
-Tu misión es validar el impacto económico y emitir un veredicto DETERMINÍSTICO.
+export const VERIFY_PROMPT = `ACT AS: Senior Smart Contract Security Auditor (OpenZeppelin, Trail of Bits).
+MISSION: Validate economic impact and issue a DETERMINISTIC VERDICT.
 
 ────────────────────────────────────────
-FASE 5 — VEREDICTO DETERMINÍSTICO
+FASE 5 — DETERMINISTIC VERDICT
 ────────────────────────────────────────
-Analiza los logs de ejecución de Foundry:
-• CONFIRMED (90-100%): Impacto económico demostrado (ganancia atacante > 0, pérdida víctima > 0).
-• PARTIAL (50-70%): Impacto indirecto, bloqueo de fondos sin ganancia, o riesgo de estado sin transferencia inmediata.
-• NOT_CONFIRMED (<= 40%): Sin impacto económico medible, fallos en ejecución, o ruta de ataque teórica no replicable.
+Analyze Foundry execution logs:
+• CONFIRMED (90-100%): Demonstrated economic impact (Attacker gain > 0, Victim loss > 0).
+• PARTIAL (50-70%): Indirect impact, DOS, frozen funds, or high risk state change.
+• NOT_CONFIRMED (<= 40%): No measurable impact, execution failure, or theoretical only.
 
 ────────────────────────────────────────
-FASE 6 — SALIDA FINAL CONFIABLE
+FASE 6 — RELIABLE OUTPUT
 ────────────────────────────────────────
-Devuelve el veredicto justificado en JSON.
+Return valid JSON only.
 
-FORMATO:
+FORMAT:
 {
   "isValid": true | false,
   "finalStatus": "CONFIRMED | PARTIAL | NOT_CONFIRMED",
   "confidenceScore": 0-100,
-  "invalidReasons": [],
-  "notes": "Vulnerabilidad: ...
-Categoría: ...
-Severidad JUSTIFICADA: ...
-Impacto económico REAL: [Especificar monto o motivo de inexistencia]
-Estado final: [CONFIRMED/PARTIAL/NOT_CONFIRMED]
-Confianza: ...%",
+  "invalidReasons": ["reason1", "reason2"],
+  "notes": "Detailed analysis of the exploit execution...",
   "severityAdjustment": "none | upgrade | downgrade"
 }
 
-VULNERABILIDAD REPORTADA:
+REPORTED VULNERABILITY:
 {{VULNERABILITY}}
 
-CÓDIGO DEL EXPLOIT:
+EXPLOIT CODE:
 {{TEST_CODE}}
 
-LOGS DE EJECUCIÓN (FOUNDRY):
+EXECUTION LOGS:
 {{TEST_LOGS}}
 `;
 
-
-
-export const UPGRADE_EXPLOIT_PROMPT = `Actúa EXCLUSIVAMENTE como un Security Researcher Web3 senior (estilo Trail of Bits / OpenZeppelin / Spearbit).
-
-Tu misión es CORREGIR y OPTIMIZAR el exploit proporcionado para que sea una prueba IRREFUTABLE de vulnerabilidad.
+export const UPGRADE_EXPLOIT_PROMPT = `ACT AS: Senior Web3 Security Researcher.
+MISSION: FIX and OPTIMIZE the provided exploit to be an IRREFUTABLE PROOF of vulnerability.
 
 ────────────────────────────────────────
-REGLAS DE REFINAMIENTO
+REFINEMENT RULES
 ────────────────────────────────────────
-1. PRECISIÓN: Si el exploit falla o es teórico, conviértelo en un ataque real con cambios de balance.
-2. RIGOR: Asegúrate de que use MockERC20 real o vm.deal para ETH.
-3. CALLBACKS: Implementa los callbacks necesarios (receive, fallback, onERC721Received) para que el ataque funcione recursivamente si es reentrada.
-4. VERDICTO: El código final DEBE demostrar la ganancia del atacante y la pérdida de la víctima.
-
-RECUERDA: Si no se puede probar una ganancia económica real, el exploit no es válido.
+1. PRECISION: If exploit fails or is theoretical, convert to REAL attack with balance changes.
+2. RIGOR: Use real MockERC20 or vm.deal for ETH.
+3. CALLBACKS: Implement required callbacks (receive, fallback, onERC721Received) for reentrancy/hooks.
+4. VERDICT: Final code MUST demonstrate attacker gain and victim loss.
 
 OUTPUT: Solidity code ONLY.
 
-TEST A REFINAR:
+TEST TO REFINE:
 {{TEST_CODE}}
 
-CONTEXTO DEL CONTRATO:
+CONTRACT CONTEXT:
 {{CONTRACT_CODE}}
 `;
-
