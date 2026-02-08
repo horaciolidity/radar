@@ -55,6 +55,14 @@ El Security Rating (riskScore) sigue una escala lógica de riesgo real:
    - PROHIBIDO asignar score < 50 si no existe un exploit real confirmado para terceros.
 
 ────────────────────────────────────────────────────────────
+REGLA DE CONSISTENCIA GLOBAL
+────────────────────────────────────────────────────────────
+1. El Risk Level global (summary) DEBE ser igual al nivel de severidad más alto encontrado en los findings.
+2. Hallazgos INFO y LOW nunca pueden resultar en un GLOBAL RISK de HIGH o CRITICAL.
+3. Si no existen exploits técnicos demostrables por terceros, el riesgo máximo global permitido es LOW.
+4. Los riesgos de centralización o administración (GOVERNANCE_RISK) NO son vulnerabilidades explotables y no deben elevar el riesgo global a HIGH o CRITICAL.
+
+────────────────────────────────────────────────────────────
 OUTPUT: JSON ESTRICTO
 ────────────────────────────────────────────────────────────
 {
