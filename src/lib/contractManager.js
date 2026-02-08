@@ -2,7 +2,8 @@ import { ethers } from 'ethers';
 import { supabase } from './supabase';
 
 const RPC_CONFIG = {
-    'Ethereum': ['https://eth.llamarpc.com', 'https://cloudflare-eth.com', 'https://ethereum.publicnode.com', 'https://eth.drpc.org'],
+    // Prioritize CORS-friendly RPCs for browser environment
+    'Ethereum': ['https://ethereum.publicnode.com', 'https://cloudflare-eth.com', 'https://eth.llamarpc.com'],
     'BSC': ['https://bsc-dataseed.binance.org', 'https://rpc.ankr.com/bsc', 'https://binance.llamarpc.com'],
     'Polygon': ['https://polygon-rpc.com', 'https://rpc.ankr.com/polygon', 'https://polygon.llamarpc.com', 'https://polygon.publicnode.com'],
     'Base': ['https://mainnet.base.org', 'https://base.publicnode.com', 'https://base.llamarpc.com'],
@@ -18,6 +19,50 @@ const NETWORK_IDS = {
     'Arbitrum': 42161,
     'Optimism': 10
 };
+
+// DEX Configuration for Liquidity Checks
+const DEX_CONFIG = {
+    'Ethereum': {
+        factory: '0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f', // Uniswap V2
+        weth: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',    // WETH
+        symbol: 'ETH'
+    },
+    'BSC': {
+        factory: '0xcA143Ce32Fe78f1f7019d7d551a6402fC5350c73', // PancakeSwap V2
+        weth: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c',    // WBNB
+        symbol: 'BNB'
+    },
+    'Polygon': {
+        factory: '0x5757371414417b8C6CAad45bAeF941aBc7d3Ab32', // QuickSwap
+        weth: '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270',    // WMATIC
+        symbol: 'MATIC'
+    },
+    'Base': {
+        factory: '0x8909Dc15e46C4A96d16279053B9F26870F605850', // BaseSwap
+        weth: '0x4200000000000000000000000000000000000006',    // WETH
+        symbol: 'ETH'
+    },
+    'Arbitrum': {
+        factory: '0x1C232F01118CB8B424793ae03F870aa7D0ff7fFF', // SushiSwap (Arb1)
+        weth: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',    // WETH
+        symbol: 'ETH'
+    },
+    'Optimism': {
+        factory: '0x1F98431c8aD98523631AE4a59f267346ea31F984', // Uniswap V3 (Using V2 compatible if available or custom logic)
+        weth: '0x4200000000000000000000000000000000000006',    // WETH
+        symbol: 'ETH'
+    }
+};
+
+const PAIR_ABI = [
+    "function getReserves() view returns (uint112, uint112, uint32)",
+    "function token0() view returns (address)",
+    "function token1() view returns (address)"
+];
+
+const FACTORY_ABI = [
+    "function getPair(address tokenA, address tokenB) view returns (address pair)"
+];
 
 const getRpcUrls = (network) => {
     const customRpc = import.meta.env[`VITE_RPC_${network.toUpperCase()}`];
@@ -38,43 +83,6 @@ const SIGNATURES = {
     BURN: '4296696b',
     PAIR_FACTORY: 'c9c991c0'
 };
-
-// DEX Configuration for Liquidity Checks
-const DEX_CONFIG = {
-    'Ethereum': {
-        factory: '0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f', // Uniswap V2
-        weth: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'     // WETH
-    },
-    'BSC': {
-        factory: '0xcA143Ce32Fe78f1f7019d7d551a6402fC5350c73', // PancakeSwap V2
-        weth: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c'     // WBNB
-    },
-    'Polygon': {
-        factory: '0x5757371414417b8C6CAad45bAeF941aBc7d3Ab32', // QuickSwap
-        weth: '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270'     // WMATIC
-    },
-    'Base': {
-        factory: '0x8909Dc15e46C4A96d16279053B9F26870F605850', // BaseSwap
-        weth: '0x4200000000000000000000000000000000000006'     // WETH
-    },
-    'Arbitrum': {
-        factory: '0x1C232F01118CB8B424793ae03F870aa7D0ff7fFF', // SushiSwap (Arb1)
-        weth: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1'     // WETH
-    },
-    'Optimism': {
-        factory: '0x1F98431c8aD98523631AE4a59f267346ea31F984', // Uniswap V3 (Harder to check simply, using V2 style fallback or Velodrome)
-        weth: '0x4200000000000000000000000000000000000006'     // WETH
-    }
-};
-
-const PAIR_ABI = [
-    "function getReserves() view returns (uint112, uint112, uint32)",
-    "function token0() view returns (address)"
-];
-
-const FACTORY_ABI = [
-    "function getPair(address tokenA, address tokenB) view returns (address pair)"
-];
 
 export async function analyzeContract(address, deployer, provider, network) {
     const analysis = {
@@ -152,9 +160,10 @@ export async function analyzeContract(address, deployer, provider, network) {
         }
 
         // 3. REAL Liquidity Check (DEX Query)
-        if (isToken && DEX_CONFIG[network]) {
+        // If it's a token (even if waiting for metadata), check liquidity
+        if ((isToken || hasTransfer) && DEX_CONFIG[network]) {
             try {
-                const { factory, weth } = DEX_CONFIG[network];
+                const { factory, weth, symbol: nativeSymbol } = DEX_CONFIG[network];
                 const factoryContract = new ethers.Contract(factory, FACTORY_ABI, provider);
 
                 // Get Pair Address
@@ -163,24 +172,39 @@ export async function analyzeContract(address, deployer, provider, network) {
                 if (pairAddress && pairAddress !== '0x0000000000000000000000000000000000000000') {
                     // Check Reserves
                     const pairContract = new ethers.Contract(pairAddress, PAIR_ABI, provider);
-                    const reserves = await pairContract.getReserves();
+                    const [reserves0, reserves1] = await pairContract.getReserves();
+                    const token0 = await pairContract.token0();
 
-                    // Simple check: is there ANY reserve?
-                    // reserves[0] and reserves[1] are bigints
-                    if (reserves[0] > 0n && reserves[1] > 0n) {
+                    // Identify which reserve is WETH/Native
+                    const wethReserve = (token0.toLowerCase() === weth.toLowerCase()) ? reserves0 : reserves1;
+
+                    // Calculate numeric value (rough)
+                    const wethValue = parseFloat(ethers.formatEther(wethReserve));
+
+                    if (wethValue > 0) {
                         analysis.has_liquidity = true;
-                        analysis.features.push("Liquidity Detected");
-                        // Good sign for safety (usually)
-                        analysis.risk_score = Math.max(0, analysis.risk_score - 10);
+                        analysis.features.push(`Liquidity: ${wethValue.toFixed(2)} ${nativeSymbol}`);
+                        analysis.type = "Token (Liquid)";
+
+                        // Reduce risk score for significant liquidity
+                        if (wethValue > 1.0) {
+                            analysis.risk_score = Math.max(0, analysis.risk_score - 20);
+                        }
                     } else {
                         analysis.features.push("Pair Created (Empty)");
                     }
                 }
             } catch (liqErr) {
-                // Ignore liquidity check errors (network issues, etc)
-                // console.warn("Liquidity check failed:", liqErr);
+                // Ignore liquidity check errors (CORS, network issues, etc)
             }
         }
+
+        // Fallback for simple LP detection if real check failed or wasn't applicable
+        if (!analysis.has_liquidity && (bytecode.includes('0dfe165a') || bytecode.includes('bc25cf77'))) {
+            analysis.has_liquidity = true;
+            analysis.features.push("LP Contract Pattern");
+        }
+
 
         // 4. Security Patterns
         if (bytecode.includes(SIGNATURES.OWNER)) {
@@ -447,4 +471,3 @@ class ContractManager {
 }
 
 export const contractManager = new ContractManager();
-
