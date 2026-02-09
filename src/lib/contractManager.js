@@ -50,7 +50,6 @@ export async function analyzeContract(address, deployer, provider, network) {
         const bytecode = await provider.getCode(address);
         if (bytecode === '0x' || !bytecode || bytecode === '0x0') return null;
 
-        // 1. Structural Analysis
         const isProxy = bytecode.includes('363d3d373d3d3d363d73') || (bytecode.length > 2 && bytecode.length < 500);
         if (isProxy) {
             analysis.type = "Proxy";
@@ -58,72 +57,59 @@ export async function analyzeContract(address, deployer, provider, network) {
             analysis.risk_score += 20;
         }
 
-        // 2. Token Detection
-        const hasTransfer = bytecode.includes(SIGNATURES.TRANSFER);
-        const hasTotalSupply = bytecode.includes(SIGNATURES.TOTAL_SUPPLY);
-        let isToken = hasTransfer && hasTotalSupply;
-
+        const isToken = bytecode.includes(SIGNATURES.TRANSFER) && bytecode.includes(SIGNATURES.TOTAL_SUPPLY);
         if (isToken) {
             analysis.type = "Token (ERC20)";
             analysis.features.push("ERC20 / Token");
             try {
                 const contract = new ethers.Contract(address, ["function name() view returns (string)", "function symbol() view returns (string)"], provider);
                 const [name, symbol] = await Promise.all([
-                    Promise.race([contract.name(), new Promise((_, r) => setTimeout(() => r('Unknown'), 3000))]),
-                    Promise.race([contract.symbol(), new Promise((_, r) => setTimeout(() => r('???'), 3000))])
-                ]).catch(() => ["Unknown Token", "???"]);
+                    contract.name().catch(() => "Unknown Token"),
+                    contract.symbol().catch(() => "???")
+                ]);
                 analysis.name = name; analysis.symbol = symbol;
             } catch (e) { }
         }
 
-        // 3. Liquidity Check
-        if ((isToken || hasTransfer) && DEX_CONFIG[network]) {
+        if ((isToken || bytecode.includes(SIGNATURES.TRANSFER)) && DEX_CONFIG[network]) {
             try {
                 const { factory, weth, symbol: nativeSymbol } = DEX_CONFIG[network];
                 const factoryContract = new ethers.Contract(factory, FACTORY_ABI, provider);
                 const pair = await factoryContract.getPair(address, weth).catch(() => null);
                 if (pair && pair !== ethers.ZeroAddress) {
                     const pairContract = new ethers.Contract(pair, PAIR_ABI, provider);
-                    const reserves = await pairContract.getReserves().catch(() => [0n, 0n]);
-                    const t0 = await pairContract.token0().catch(() => "");
-                    const wethRes = (t0.toLowerCase() === weth.toLowerCase()) ? reserves[0] : reserves[1];
-                    const val = parseFloat(ethers.formatEther(wethRes));
-                    if (val > 0.0001) { // Min threshold for "active"
-                        analysis.has_liquidity = true;
-                        analysis.features.push(`Liquidity: ${val.toFixed(4)} ${nativeSymbol}`);
+                    const reserves = await pairContract.getReserves().catch(() => null);
+                    if (reserves) {
+                        const t0 = await pairContract.token0().catch(() => "");
+                        const wethRes = (t0.toLowerCase() === weth.toLowerCase()) ? reserves[0] : reserves[1];
+                        const val = parseFloat(ethers.formatEther(wethRes));
+                        if (val > 0) {
+                            analysis.has_liquidity = true;
+                            analysis.features.push(`Liquidity: ${val.toFixed(4)} ${nativeSymbol}`);
+                        }
                     }
                 }
             } catch (e) { }
         }
 
-        // 4. VULNERABILITY DETECTION
+        // HEURISTICS
         if (bytecode.includes('f1') && bytecode.length > 2000) {
-            analysis.findings.push({ type: "Possible Reentrancy", severity: "HIGH", description: "Contract uses low-level calls. Verify if state updates follow C-E-I pattern." });
+            analysis.findings.push({ type: "Possible Reentrancy", severity: "HIGH", description: "Contract uses low-level calls." });
             analysis.risk_score += 45;
         }
         if (bytecode.includes(SIGNATURES.SELFDESTRUCT)) {
-            analysis.findings.push({ type: "Critical: SelfDestruct", severity: "CRITICAL", description: "Bytecode contains self-destruct instructions." });
+            analysis.findings.push({ type: "Critical: SelfDestruct", severity: "CRITICAL", description: "SelfDestruct instruction detected." });
             analysis.risk_score += 85;
         }
         if (bytecode.includes(SIGNATURES.DELEGATECALL) && !isProxy) {
-            analysis.findings.push({ type: "Critical: Unsafe DelegateCall", severity: "CRITICAL", description: "Arbitrary delegatecall detected." });
+            analysis.findings.push({ type: "Critical: DelegateCall", severity: "CRITICAL", description: "Arbitrary delegatecall pattern." });
             analysis.risk_score += 90;
-        }
-        if (bytecode.includes('08c379a0')) {
-            analysis.findings.push({ type: "Honeypot Hazard", severity: "CRITICAL", description: "Hidden transfer restrictions detected." });
-            analysis.risk_score += 75;
-        }
-        if (bytecode.includes(SIGNATURES.MINT) && bytecode.includes(SIGNATURES.OWNER)) {
-            analysis.findings.push({ type: "Owner Minting", severity: "HIGH", description: "Centralized supply control." });
-            analysis.risk_score += 50;
         }
 
         analysis.risk_score = Math.min(analysis.risk_score, 100);
         analysis.tag = analysis.risk_score >= 70 ? "CRITICAL" : (analysis.risk_score >= 40 ? "HIGH" : "SAFE");
         analysis.is_vulnerable = analysis.risk_score >= 40;
         analysis.is_scam = analysis.risk_score >= 75;
-        analysis.bytecode = bytecode.length > 500 ? bytecode.slice(0, 250) + "..." + bytecode.slice(-250) : bytecode;
-        analysis.bytecode_size = (bytecode.length - 2) / 2;
 
         return analysis;
     } catch (error) { return null; }
@@ -156,23 +142,29 @@ class ContractManager {
         this.providers[network] = null;
     }
 
-    async scanRecentBlocks(network, countOrStartBlock = 5) {
+    async scanRecentBlocks(network, countOrStartBlock = 20) {
         if (this.isScanning[network]) return;
         this.isScanning[network] = true;
+
+        console.log(`[Radar] Scanning ${network}...`);
         const provider = this.getProvider(network);
         if (!provider) { this.isScanning[network] = false; return; }
 
         try {
             const current = await provider.getBlockNumber();
             let start = (typeof countOrStartBlock === 'number' && countOrStartBlock < 1000) ? current - countOrStartBlock : countOrStartBlock;
+
+            // Limit scanning depth
             if (this.lastBlocks[network] && start <= this.lastBlocks[network]) start = this.lastBlocks[network] + 1;
             if (start > current) { this.isScanning[network] = false; return; }
 
             for (let b = start; b <= current; b++) {
-                const block = await provider.send("eth_getBlockByNumber", [ethers.toQuantity(b), true]).catch(() => null);
-                if (!block || !block.transactions) continue;
+                // Idiomatic Ethers v6: getBlock with transactions prefetched
+                const block = await provider.getBlock(b, true).catch(() => null);
+                if (!block) continue;
 
                 for (const tx of block.transactions) {
+                    // Check if it's a contract creation (to is null or zero address)
                     if (!tx.to || tx.to === ethers.ZeroAddress) {
                         const receipt = await provider.getTransactionReceipt(tx.hash).catch(() => null);
                         if (receipt && receipt.contractAddress) {
@@ -180,21 +172,18 @@ class ContractManager {
                             if (!analysis) continue;
 
                             const bal = await provider.getBalance(receipt.contractAddress).catch(() => 0n);
-                            const hasNativeVal = bal > 0n;
-                            const hasValue = hasNativeVal || analysis.has_liquidity;
+                            const hasValue = bal > 0n || analysis.has_liquidity;
 
-                            // 🎯 STRICT BALANCE FILTER:
-                            // Show ONLY if it has real value (Native or Liquidity)
                             if (hasValue) {
-                                console.log(`[RADAR 🎯] Hit with Balance: ${receipt.contractAddress} (${analysis.type})`);
-                                if (hasNativeVal) {
+                                console.log(`[Radar 🎯] Hit on ${network}: ${receipt.contractAddress} | Value: ${hasValue}`);
+                                if (bal > 0n) {
                                     const ethStr = parseFloat(ethers.formatEther(bal)).toFixed(4);
                                     analysis.features.push(`Native: ${ethStr}`);
                                 }
 
                                 analysis.block_number = b;
                                 analysis.tx_hash = tx.hash;
-                                analysis.timestamp = new Date(parseInt(block.timestamp, 16) * 1000).toISOString();
+                                analysis.timestamp = new Date(block.timestamp * 1000).toISOString();
                                 await this.saveContract(analysis);
                             }
                         }
@@ -206,13 +195,17 @@ class ContractManager {
         } catch (e) {
             console.error(`[Radar] Error on ${network}:`, e);
             this.rotateProvider(network);
-        } finally { this.isScanning[network] = false; }
+        } finally {
+            this.isScanning[network] = false;
+        }
     }
 
     async saveContract(contract) {
         try {
-            await supabase.from('contracts').upsert({ ...contract, id: `${contract.network}-${contract.address}`.toLowerCase() }, { onConflict: 'id' });
-        } catch (e) { }
+            await supabase.from('contracts').upsert(contract, { onConflict: 'id' });
+        } catch (e) {
+            console.error("[Radar] Supabase Error:", e);
+        }
     }
 
     async findAndAnalyze(address, network = 'Ethereum') {
@@ -224,8 +217,6 @@ class ContractManager {
             return analysis;
         } catch (e) { return null; }
     }
-
-    getStatus(network) { return { lastBlock: this.lastBlocks[network] || null, isReady: !!this.providers[network], isScanning: !!this.isScanning[network] }; }
 }
 
 const getRpcUrls = (network) => {
