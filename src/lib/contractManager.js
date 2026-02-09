@@ -154,17 +154,14 @@ class ContractManager {
             const current = await provider.getBlockNumber();
             let start = (typeof countOrStartBlock === 'number' && countOrStartBlock < 1000) ? current - countOrStartBlock : countOrStartBlock;
 
-            // Limit scanning depth
             if (this.lastBlocks[network] && start <= this.lastBlocks[network]) start = this.lastBlocks[network] + 1;
             if (start > current) { this.isScanning[network] = false; return; }
 
             for (let b = start; b <= current; b++) {
-                // Idiomatic Ethers v6: getBlock with transactions prefetched
                 const block = await provider.getBlock(b, true).catch(() => null);
                 if (!block) continue;
 
                 for (const tx of block.transactions) {
-                    // Check if it's a contract creation (to is null or zero address)
                     if (!tx.to || tx.to === ethers.ZeroAddress) {
                         const receipt = await provider.getTransactionReceipt(tx.hash).catch(() => null);
                         if (receipt && receipt.contractAddress) {
@@ -216,6 +213,14 @@ class ContractManager {
             if (analysis) await this.saveContract(analysis);
             return analysis;
         } catch (e) { return null; }
+    }
+
+    getStatus(network) {
+        return {
+            lastBlock: this.lastBlocks[network] || null,
+            isReady: !!this.providers[network],
+            isScanning: !!this.isScanning[network]
+        };
     }
 }
 
