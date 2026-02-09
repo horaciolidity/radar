@@ -84,55 +84,44 @@ export async function analyzeContract(address, deployer, provider, network) {
                 const pair = await factoryContract.getPair(address, weth).catch(() => null);
                 if (pair && pair !== ethers.ZeroAddress) {
                     const pairContract = new ethers.Contract(pair, PAIR_ABI, provider);
-                    const [res0, res1] = await pairContract.getReserves();
-                    const t0 = await pairContract.token0();
-                    const wethRes = (t0.toLowerCase() === weth.toLowerCase()) ? res0 : res1;
+                    const reserves = await pairContract.getReserves().catch(() => [0n, 0n]);
+                    const t0 = await pairContract.token0().catch(() => "");
+                    const wethRes = (t0.toLowerCase() === weth.toLowerCase()) ? reserves[0] : reserves[1];
                     const val = parseFloat(ethers.formatEther(wethRes));
-                    if (val > 0) {
+                    if (val > 0.0001) { // Min threshold for "active"
                         analysis.has_liquidity = true;
-                        analysis.features.push(`Liquidity: ${val.toFixed(2)} ${nativeSymbol}`);
+                        analysis.features.push(`Liquidity: ${val.toFixed(4)} ${nativeSymbol}`);
                     }
                 }
             } catch (e) { }
         }
 
-        // 4. SURGICAL VULNERABILITY DETECTION
-        // H1: Reentrancy Pattern
+        // 4. VULNERABILITY DETECTION
         if (bytecode.includes('f1') && bytecode.length > 2000) {
             analysis.findings.push({ type: "Possible Reentrancy", severity: "HIGH", description: "Contract uses low-level calls. Verify if state updates follow C-E-I pattern." });
             analysis.risk_score += 45;
         }
-
-        // H2: Self-Destruct Logic
         if (bytecode.includes(SIGNATURES.SELFDESTRUCT)) {
-            analysis.findings.push({ type: "Critical: SelfDestruct", severity: "CRITICAL", description: "Bytecode contains self-destruct instructions. Vulnerable to total fund loss." });
+            analysis.findings.push({ type: "Critical: SelfDestruct", severity: "CRITICAL", description: "Bytecode contains self-destruct instructions." });
             analysis.risk_score += 85;
         }
-
-        // H3: Unsafe DelegateCall
         if (bytecode.includes(SIGNATURES.DELEGATECALL) && !isProxy) {
-            analysis.findings.push({ type: "Critical: Unsafe Logical Injection", severity: "CRITICAL", description: "Arbitrary delegatecall detected. External contracts can hijack storage." });
+            analysis.findings.push({ type: "Critical: Unsafe DelegateCall", severity: "CRITICAL", description: "Arbitrary delegatecall detected." });
             analysis.risk_score += 90;
         }
-
-        // H4: Honeypot / Transfer Restriction
         if (bytecode.includes('08c379a0')) {
-            analysis.findings.push({ type: "Honeypot Hazard", severity: "CRITICAL", description: "Hidden transfer restrictions detected in bytecode." });
+            analysis.findings.push({ type: "Honeypot Hazard", severity: "CRITICAL", description: "Hidden transfer restrictions detected." });
             analysis.risk_score += 75;
         }
-
-        // H5: High-Privilege Minting
         if (bytecode.includes(SIGNATURES.MINT) && bytecode.includes(SIGNATURES.OWNER)) {
-            analysis.findings.push({ type: "Owner Minting", severity: "HIGH", description: "Centralized power to create supply. High risk of rug-pull." });
+            analysis.findings.push({ type: "Owner Minting", severity: "HIGH", description: "Centralized supply control." });
             analysis.risk_score += 50;
         }
 
-        // Final Scoring
         analysis.risk_score = Math.min(analysis.risk_score, 100);
         analysis.tag = analysis.risk_score >= 70 ? "CRITICAL" : (analysis.risk_score >= 40 ? "HIGH" : "SAFE");
         analysis.is_vulnerable = analysis.risk_score >= 40;
         analysis.is_scam = analysis.risk_score >= 75;
-
         analysis.bytecode = bytecode.length > 500 ? bytecode.slice(0, 250) + "..." + bytecode.slice(-250) : bytecode;
         analysis.bytecode_size = (bytecode.length - 2) / 2;
 
@@ -157,7 +146,6 @@ class ContractManager {
             const urls = getRpcUrls(network);
             const url = urls[(this.rpcIndex[network] || 0) % urls.length];
             if (!url) return null;
-            // FIXED: Pass chainId as number for Ethers v6
             this.providers[network] = new ethers.JsonRpcProvider(url, NETWORK_IDS[network], { staticNetwork: true });
         }
         return this.providers[network];
@@ -193,12 +181,16 @@ class ContractManager {
 
                             const bal = await provider.getBalance(receipt.contractAddress).catch(() => 0n);
                             const hasNativeVal = bal > 0n;
-                            const isToken = analysis.type === "Token (ERC20)";
-                            const hasLiquidity = analysis.has_liquidity;
+                            const hasValue = hasNativeVal || analysis.has_liquidity;
 
-                            if (isToken || ((hasNativeVal || hasLiquidity) && analysis.is_vulnerable)) {
-                                console.log(`[RADAR 🎯] Hit: ${receipt.contractAddress} (${analysis.type})`);
-                                if (bal > 0n) analysis.features.push(`Native: ${parseFloat(ethers.formatEther(bal)).toFixed(4)}`);
+                            // 🎯 STRICT BALANCE FILTER:
+                            // Show ONLY if it has real value (Native or Liquidity)
+                            if (hasValue) {
+                                console.log(`[RADAR 🎯] Hit with Balance: ${receipt.contractAddress} (${analysis.type})`);
+                                if (hasNativeVal) {
+                                    const ethStr = parseFloat(ethers.formatEther(bal)).toFixed(4);
+                                    analysis.features.push(`Native: ${ethStr}`);
+                                }
 
                                 analysis.block_number = b;
                                 analysis.tx_hash = tx.hash;
@@ -211,7 +203,10 @@ class ContractManager {
             }
             this.lastBlocks[network] = current;
             localStorage.setItem('radar_last_blocks', JSON.stringify(this.lastBlocks));
-        } catch (e) { this.rotateProvider(network); } finally { this.isScanning[network] = false; }
+        } catch (e) {
+            console.error(`[Radar] Error on ${network}:`, e);
+            this.rotateProvider(network);
+        } finally { this.isScanning[network] = false; }
     }
 
     async saveContract(contract) {
