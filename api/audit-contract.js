@@ -35,54 +35,67 @@ export default async function handler(req) {
     try {
         const { address, network, code, prompt } = await req.json();
 
+        if (!process.env.GROQ_API_KEY) {
+            return new Response(JSON.stringify({
+                success: false,
+                error: "GROQ_API_KEY is missing in environment variables."
+            }), {
+                status: 500, headers: { 'Content-Type': 'application/json' }
+            });
+        }
+
         // 1. PERFORM AI AUDIT
         let auditResult = null;
+        let lastError = null;
 
-        // Try GROQ
-        if (process.env.GROQ_API_KEY) {
-            try {
-                console.log(`[${VERSION}] Trying Groq (llama-3.3-70b-versatile)...`);
-                const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        model: "llama-3.3-70b-versatile",
-                        messages: [
-                            {
-                                role: "system",
-                                content: "Actúa EXCLUSIVAMENTE como un Auditor de Seguridad Smart Contracts senior (OpenZeppelin, Trail of Bits, Spearbit). La CONSISTENCIA y la VERACIDAD son prioritarias. No inventes vulnerabilidades. Output VALID JSON ONLY siguiendo las fases de auditoría proporcionadas."
-                            },
-                            { role: "user", content: prompt }
-                        ],
-                        response_format: { type: "json_object" }
-                    })
-                });
+        try {
+            console.log(`[${VERSION}] Trying Groq (llama-3.3-70b-versatile)...`);
+            const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    model: "llama-3.3-70b-versatile",
+                    messages: [
+                        {
+                            role: "system",
+                            content: "Actúa EXCLUSIVAMENTE como un Auditor de Seguridad Smart Contracts senior (OpenZeppelin, Trail of Bits, Spearbit). La CONSISTENCIA y la VERACIDAD son prioritarias. No inventes vulnerabilidades. Output VALID JSON ONLY siguiendo las fases de auditoría proporcionadas."
+                        },
+                        { role: "user", content: prompt }
+                    ],
+                    response_format: { type: "json_object" }
+                })
+            });
 
-                if (groqRes.ok) {
-                    const data = await groqRes.json();
-                    const content = data.choices[0].message.content;
-                    auditResult = extractJSON(content);
-                    if (!auditResult) {
-                        console.warn(`[${VERSION}] Groq returned success but content was not valid JSON:`, content.slice(0, 100));
-                    } else {
-                        console.log(`[${VERSION}] Groq Analysis successful.`);
-                    }
+            if (groqRes.ok) {
+                const data = await groqRes.json();
+                const content = data.choices[0].message.content;
+                auditResult = extractJSON(content);
+                if (!auditResult) {
+                    lastError = "Groq returned success but content was not valid JSON or lacked the required fields.";
+                    console.warn(`[${VERSION}] ${lastError}`, content.slice(0, 200));
                 } else {
-                    const errMsg = await groqRes.text();
-                    console.error(`[${VERSION}] Groq API Error Status: ${groqRes.status}. Details: ${errMsg}`);
+                    console.log(`[${VERSION}] Groq Analysis successful.`);
                 }
-            } catch (e) {
-                console.error(`[${VERSION}] Groq Fetch Error:`, e.message);
+            } else {
+                const errMsg = await groqRes.text();
+                lastError = `Groq API Error (Status ${groqRes.status}): ${errMsg}`;
+                console.error(`[${VERSION}] ${lastError}`);
             }
-        } else {
-            console.warn(`[${VERSION}] GROQ_API_KEY is not defined.`);
+        } catch (e) {
+            lastError = `Groq Fetch Exception: ${e.message}`;
+            console.error(`[${VERSION}] ${lastError}`);
         }
 
         if (!auditResult) {
-            throw new Error("AI Analysis (Groq) failed or returned invalid format. Please check your GROQ_API_KEY and model availability.");
+            return new Response(JSON.stringify({
+                success: false,
+                error: lastError || "Unknown error during Groq analysis."
+            }), {
+                status: 500, headers: { 'Content-Type': 'application/json' }
+            });
         }
 
         // 2. PREPARE FINAL STRUCTURE
@@ -106,7 +119,7 @@ export default async function handler(req) {
                         network,
                         code_content: code,
                         result: auditData,
-                        risk_score: auditData.summary.riskScore
+                        risk_score: auditData.summary?.riskScore || 0
                     }]);
             } catch (e) {
                 console.warn("Supabase save failed", e.message);
@@ -121,7 +134,7 @@ export default async function handler(req) {
         });
 
     } catch (e) {
-        return new Response(JSON.stringify({ success: false, error: e.message }), {
+        return new Response(JSON.stringify({ success: false, error: `Fatal Handler Error: ${e.message}` }), {
             status: 500, headers: { 'Content-Type': 'application/json' }
         });
     }
