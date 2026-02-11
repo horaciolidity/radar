@@ -1,4 +1,3 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -25,7 +24,7 @@ function extractJSON(text) {
 }
 
 export default async function handler(req) {
-    const VERSION = "v4.1-enterprise-auditor";
+    const VERSION = "v4.2-enterprise-auditor-groq-only";
 
     if (req.method !== 'POST') {
         return new Response(JSON.stringify({ error: 'Method not allowed' }), {
@@ -82,28 +81,8 @@ export default async function handler(req) {
             console.warn(`[${VERSION}] GROQ_API_KEY is not defined.`);
         }
 
-        // Fallback to Gemini
-        if (!auditResult && process.env.GEMINI_API_KEY) {
-            try {
-                console.log(`[${VERSION}] Trying Gemini...`);
-                const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-                const modelName = "gemini-2.0-flash"; // More stable/recent model name
-                const model = genAI.getGenerativeModel({ model: modelName });
-                const result = await model.generateContent(prompt);
-                const response = await result.response;
-                const text = response.text();
-                auditResult = extractJSON(text);
-                if (!auditResult) {
-                    console.warn(`[${VERSION}] Gemini returned text but no valid JSON found. Text:`, text.slice(0, 500));
-                }
-            } catch (e) {
-                console.error(`[${VERSION}] Gemini Error:`, e.message);
-                throw new Error(`Gemini API Error: ${e.message}`);
-            }
-        }
-
         if (!auditResult) {
-            throw new Error("AI Analysis failed or returned invalid format");
+            throw new Error("AI Analysis (Groq) failed or returned invalid format. Please check your GROQ_API_KEY and model availability.");
         }
 
         // 2. PREPARE FINAL STRUCTURE
