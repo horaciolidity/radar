@@ -12,7 +12,6 @@ export const config = {
 // HELPER: Extract JSON from AI text
 function extractJSON(text) {
     try {
-        // Remove potential markdown wrappers
         const cleanText = text.replace(/```json\n?|```/g, '').trim();
         const jsonMatch = cleanText.match(/\{[\s\S]*\}/);
         if (!jsonMatch) return null;
@@ -24,7 +23,7 @@ function extractJSON(text) {
 }
 
 export default async function handler(req) {
-    const VERSION = "v4.2-enterprise-auditor-groq-only";
+    const VERSION = "v5.0-enterprise-auditor-deepseek";
 
     if (req.method !== 'POST') {
         return new Response(JSON.stringify({ error: 'Method not allowed' }), {
@@ -35,29 +34,29 @@ export default async function handler(req) {
     try {
         const { address, network, code, prompt } = await req.json();
 
-        if (!process.env.GROQ_API_KEY) {
+        if (!process.env.DEEPSEEK_API_KEY) {
             return new Response(JSON.stringify({
                 success: false,
-                error: "GROQ_API_KEY is missing in environment variables."
+                error: "DEEPSEEK_API_KEY is missing in environment variables."
             }), {
                 status: 500, headers: { 'Content-Type': 'application/json' }
             });
         }
 
-        // 1. PERFORM AI AUDIT
+        // 1. PERFORM AI AUDIT USING DEEPSEEK
         let auditResult = null;
         let lastError = null;
 
         try {
-            console.log(`[${VERSION}] Trying Groq (llama-3.3-70b-versatile)...`);
-            const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            console.log(`[${VERSION}] Trying DeepSeek (deepseek-chat)...`);
+            const dsRes = await fetch('https://api.deepseek.com/v1/chat/completions', {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+                    'Authorization': `Bearer ${process.env.DEEPSEEK_API_KEY}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    model: "llama-3.3-70b-versatile",
+                    model: "deepseek-chat",
                     messages: [
                         {
                             role: "system",
@@ -69,30 +68,28 @@ export default async function handler(req) {
                 })
             });
 
-            if (groqRes.ok) {
-                const data = await groqRes.json();
+            if (dsRes.ok) {
+                const data = await dsRes.json();
                 const content = data.choices[0].message.content;
                 auditResult = extractJSON(content);
                 if (!auditResult) {
-                    lastError = "Groq returned success but content was not valid JSON or lacked the required fields.";
+                    lastError = "DeepSeek returned success but content was not valid JSON.";
                     console.warn(`[${VERSION}] ${lastError}`, content.slice(0, 200));
-                } else {
-                    console.log(`[${VERSION}] Groq Analysis successful.`);
                 }
             } else {
-                const errMsg = await groqRes.text();
-                lastError = `Groq API Error (Status ${groqRes.status}): ${errMsg}`;
+                const errMsg = await dsRes.text();
+                lastError = `DeepSeek API Error (Status ${dsRes.status}): ${errMsg}`;
                 console.error(`[${VERSION}] ${lastError}`);
             }
         } catch (e) {
-            lastError = `Groq Fetch Exception: ${e.message}`;
+            lastError = `DeepSeek Fetch Exception: ${e.message}`;
             console.error(`[${VERSION}] ${lastError}`);
         }
 
         if (!auditResult) {
             return new Response(JSON.stringify({
                 success: false,
-                error: lastError || "Unknown error during Groq analysis."
+                error: lastError || "Unknown error during DeepSeek analysis."
             }), {
                 status: 500, headers: { 'Content-Type': 'application/json' }
             });
