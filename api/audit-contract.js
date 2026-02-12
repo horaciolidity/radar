@@ -1,10 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-    process.env.SUPABASE_URL || '',
-    process.env.SUPABASE_KEY || ''
-);
-
 export const config = {
     runtime: 'edge',
 };
@@ -12,18 +7,23 @@ export const config = {
 // HELPER: Extract JSON from AI text
 function extractJSON(text) {
     try {
+        console.log("Extracting JSON from text length:", text.length);
         const cleanText = text.replace(/```json\n?|```/g, '').trim();
         const jsonMatch = cleanText.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) return null;
+        if (!jsonMatch) {
+            console.error("No JSON braces found in text:", text.slice(0, 500));
+            return null;
+        }
         return JSON.parse(jsonMatch[0]);
     } catch (e) {
-        console.error("JSON Extraction failed:", e.message, "Text snippet:", text.slice(0, 100));
+        console.error("JSON Extraction failed:", e.message, "Text snippet:", text.slice(0, 200));
         return null;
     }
 }
 
 export default async function handler(req) {
-    const VERSION = "v5.1-enterprise-auditor-deepseek";
+    const VERSION = "v6.0-enterprise-auditor-deepseek-debug";
+    console.log(`[${VERSION}] Handler started...`);
 
     if (req.method !== 'POST') {
         return new Response(JSON.stringify({ error: 'Method not allowed' }), {
@@ -32,12 +32,17 @@ export default async function handler(req) {
     }
 
     try {
-        const { address, network, code, prompt } = await req.json();
+        const body = await req.json();
+        const { address, network, code, prompt } = body;
+
+        console.log(`[${VERSION}] Received request for address: ${address || 'manual'}, network: ${network}`);
+        console.log(`[${VERSION}] Prompt length: ${prompt?.length || 0}`);
 
         if (!process.env.DEEPSEEK_API_KEY) {
+            console.error(`[${VERSION}] CRITICAL: DEEPSEEK_API_KEY is missing!`);
             return new Response(JSON.stringify({
                 success: false,
-                error: "DEEPSEEK_API_KEY is missing in environment variables."
+                error: "Detección: DEEPSEEK_API_KEY no encontrada en Vercel."
             }), {
                 status: 500, headers: { 'Content-Type': 'application/json' }
             });
@@ -48,8 +53,10 @@ export default async function handler(req) {
         let lastError = null;
 
         try {
-            console.log(`[${VERSION}] Trying DeepSeek (deepseek-chat) at https://api.deepseek.com/chat/completions ...`);
-            const dsRes = await fetch('https://api.deepseek.com/chat/completions', {
+            const apiEndpoint = 'https://api.deepseek.com/chat/completions';
+            console.log(`[${VERSION}] Fetching DeepSeek at ${apiEndpoint}...`);
+
+            const dsRes = await fetch(apiEndpoint, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${process.env.DEEPSEEK_API_KEY}`,
@@ -60,26 +67,32 @@ export default async function handler(req) {
                     messages: [
                         {
                             role: "system",
-                            content: "Actúa EXCLUSIVAMENTE como un Auditor de Seguridad Smart Contracts senior (OpenZeppelin, Trail of Bits, Spearbit). La CONSISTENCIA y la VERACIDAD son prioritarias. No inventes vulnerabilidades. Responde SIEMPRE en formato JSON siguiendo el esquema solicitado."
+                            content: "Actúa EXCLUSIVAMENTE como un Auditor de Seguridad Smart Contracts senior (OpenZeppelin, Trail of Bits, Spearbit). Output VALID JSON ONLY siguiendo las fases de auditoría proporcionadas."
                         },
                         { role: "user", content: prompt }
                     ],
-                    // DeepSeek supports json_object but removing it for maximum compatibility
-                    // response_format: { type: "json_object" } 
+                    temperature: 0.3,
+                    max_tokens: 4000
                 })
             });
 
+            console.log(`[${VERSION}] DeepSeek response status: ${dsRes.status}`);
+
             if (dsRes.ok) {
                 const data = await dsRes.json();
-                const content = data.choices[0].message.content;
-                auditResult = extractJSON(content);
-                if (!auditResult) {
-                    lastError = "DeepSeek returned success but content was not valid JSON.";
-                    console.warn(`[${VERSION}] ${lastError}`, content.slice(0, 200));
+                const content = data.choices?.[0]?.message?.content;
+                if (!content) {
+                    lastError = "DeepSeek returned empty content.";
+                    console.error(`[${VERSION}] ${lastError}`, JSON.stringify(data));
+                } else {
+                    auditResult = extractJSON(content);
+                    if (!auditResult) {
+                        lastError = "Failed to parse JSON from DeepSeek response.";
+                    }
                 }
             } else {
-                const errMsg = await dsRes.text();
-                lastError = `DeepSeek API Error (Status ${dsRes.status}): ${errMsg}`;
+                const errorText = await dsRes.text();
+                lastError = `DeepSeek API Error (HTTP ${dsRes.status}): ${errorText}`;
                 console.error(`[${VERSION}] ${lastError}`);
             }
         } catch (e) {
@@ -110,17 +123,20 @@ export default async function handler(req) {
         // 3. OPTIONAL: Save to Supabase (if configured)
         if (process.env.SUPABASE_URL && process.env.SUPABASE_KEY) {
             try {
+                console.log(`[${VERSION}] Initializing Supabase...`);
+                const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
                 await supabase
                     .from('contract_audits')
                     .insert([{
-                        address,
-                        network,
-                        code_content: code,
+                        address: address || 'manual',
+                        network: network || 'unknown',
+                        code_content: code || 'manual_paste',
                         result: auditData,
                         risk_score: auditData.summary?.riskScore || 0
                     }]);
+                console.log(`[${VERSION}] Saved to Supabase.`);
             } catch (e) {
-                console.warn("Supabase save failed", e.message);
+                console.warn(`[${VERSION}] Supabase save failed:`, e.message);
             }
         }
 
@@ -132,6 +148,7 @@ export default async function handler(req) {
         });
 
     } catch (e) {
+        console.error(`[${VERSION}] FATAL ERROR:`, e.message);
         return new Response(JSON.stringify({ success: false, error: `Fatal Handler Error: ${e.message}` }), {
             status: 500, headers: { 'Content-Type': 'application/json' }
         });
