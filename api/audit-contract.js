@@ -23,7 +23,7 @@ function extractJSON(text) {
 }
 
 export default async function handler(req) {
-    const VERSION = "v5.0-enterprise-auditor-deepseek";
+    const VERSION = "v5.1-enterprise-auditor-deepseek";
 
     if (req.method !== 'POST') {
         return new Response(JSON.stringify({ error: 'Method not allowed' }), {
@@ -48,8 +48,8 @@ export default async function handler(req) {
         let lastError = null;
 
         try {
-            console.log(`[${VERSION}] Trying DeepSeek (deepseek-chat)...`);
-            const dsRes = await fetch('https://api.deepseek.com/v1/chat/completions', {
+            console.log(`[${VERSION}] Trying DeepSeek (deepseek-chat) at https://api.deepseek.com/chat/completions ...`);
+            const dsRes = await fetch('https://api.deepseek.com/chat/completions', {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${process.env.DEEPSEEK_API_KEY}`,
@@ -60,11 +60,12 @@ export default async function handler(req) {
                     messages: [
                         {
                             role: "system",
-                            content: "Actúa EXCLUSIVAMENTE como un Auditor de Seguridad Smart Contracts senior (OpenZeppelin, Trail of Bits, Spearbit). La CONSISTENCIA y la VERACIDAD son prioritarias. No inventes vulnerabilidades. Output VALID JSON ONLY siguiendo las fases de auditoría proporcionadas."
+                            content: "Actúa EXCLUSIVAMENTE como un Auditor de Seguridad Smart Contracts senior (OpenZeppelin, Trail of Bits, Spearbit). La CONSISTENCIA y la VERACIDAD son prioritarias. No inventes vulnerabilidades. Responde SIEMPRE en formato JSON siguiendo el esquema solicitado."
                         },
                         { role: "user", content: prompt }
                     ],
-                    response_format: { type: "json_object" }
+                    // DeepSeek supports json_object but removing it for maximum compatibility
+                    // response_format: { type: "json_object" } 
                 })
             });
 
